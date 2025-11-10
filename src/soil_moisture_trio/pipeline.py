@@ -11,6 +11,7 @@ import fsspec
 
 from src.soil_moisture_trio.config import ClassifierConfig
 from src.soil_moisture_trio.model import SoilData, DryWetClassifier
+from src.soil_moisture_trio.risk import assess_risk_levels
 
 # Main Pipeline Class
 class DryWetClassifierPipeline:
@@ -42,6 +43,7 @@ class DryWetClassifierPipeline:
         ndvi = np.random.uniform(-0.1, 1.0, (grid_size, grid_size))  # Vegetation index
         ndwi = np.random.uniform(-0.5, 0.5, (grid_size, grid_size))  # Water index
         fire_index = np.random.uniform(0, 10, (grid_size, grid_size))  # Fire risk
+        vpd = np.random.uniform(0, 50, (grid_size, grid_size))  # Vapor pressure deficit
         
         print("Synthetic data generated. Shapes:", (grid_size, grid_size) * 5)
         return {
@@ -50,6 +52,7 @@ class DryWetClassifierPipeline:
             'ndvi': ndvi,
             'ndwi': ndwi,
             'fire_index': fire_index,
+            'vpd': vpd,
             'lats': lats,
             'lons': lons
         }
@@ -253,3 +256,21 @@ class DryWetClassifierPipeline:
         wet_count = np.sum(pred_class == 1)
         print(f"Grid classified. Dry cells: {dry_count}, Wet cells: {wet_count}")
         return pred_class  # Binary map for export/visualization
+
+    def assess_risk(self, classification_grid: Optional[np.ndarray] = None) -> Dict[str, Any]:
+        """
+        Generate the risk layer and summary statistics.
+
+        Args:
+            classification_grid: Optional cached prediction. If None, predict_grid() is invoked.
+
+        Returns:
+            Dict containing the risk_map and summary counts/percentages.
+        """
+        if not hasattr(self, "data_grids"):
+            raise ValueError("Prepare data before assessing risk.")
+        if classification_grid is None:
+            classification_grid = self.predict_grid()
+
+        risk_map, summary = assess_risk_levels(self.data_grids, classification_grid, self.config)
+        return {"risk_map": risk_map, "summary": summary}

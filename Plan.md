@@ -36,12 +36,13 @@ This document outlines the development plan for the `soil-moisture-trio` project
 
 ## Phase 3: Decision Support & Risk Layer
 
-- [ ] **Define Risk Rubric:**
-    - [ ] Translate per-cell dry/wet probabilities plus thresholds into categorical risk levels suitable for management decisions.
-    - [ ] Document how current moisture/temperature/VPD thresholds influence each risk band.
+- [x] **Define Risk Rubric:**
+    - [x] Translate per-cell dry/wet probabilities plus thresholds into categorical risk levels suitable for management decisions (implemented via `src/soil_moisture_trio/risk.py` + `pipeline.assess_risk`).
+    - [x] Document how current moisture/temperature/VPD thresholds influence each risk band (captured in `ClassifierConfig` fields and agent context).
 - [ ] **Aggregate Insights:**
     - [ ] Prototype scripts/notebooks to aggregate grid predictions into regional summaries (e.g., percentage dry, hotspot detection).
     - [ ] Explore incorporating recent trends (multi-year anomalies) or ancillary datasets to contextualize risk.
 - [ ] **Output Formats:**
-    - [ ] Decide on delivery mechanisms (GeoJSON, NetCDF layers, simple reports) that downstream tools can consume.
+    - [x] Provide NetCDF + JSON exports of the risk layer via `--risk-output-prefix` to unblock downstream viz/scripting.
+    - [ ] Decide on additional delivery mechanisms (GeoJSON, NetCDF layers, simple reports) that downstream tools can consume.
     - [ ] Update README once the risk layer workflow stabilizes.
