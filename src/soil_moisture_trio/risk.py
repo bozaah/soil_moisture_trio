@@ -114,13 +114,16 @@ def save_risk_outputs(
     Returns:
         dict with keys 'netcdf' and 'summary' pointing to the written file paths.
     """
-    base_path = Path(base_path)
+    base_path = Path(base_path).expanduser()
     if base_path.suffix:
         nc_path = base_path
         summary_path = base_path.with_name(base_path.stem + "_summary.json")
     else:
         nc_path = base_path.with_suffix(".nc")
         summary_path = base_path.with_name(base_path.stem + "_summary.json")
+
+    nc_path.parent.mkdir(parents=True, exist_ok=True)
+    summary_path.parent.mkdir(parents=True, exist_ok=True)
 
     ds = xr.Dataset(
         {

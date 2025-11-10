@@ -1,13 +1,13 @@
 import os
+from typing import Any, Dict, Optional
+
 import numpy as np
 import torch
 import torch.nn as nn
 import torch.optim as optim
-from torch.utils.data import DataLoader
-from typing import List, Dict, Any, Optional
 import xarray as xr
 import rioxarray as rio
-import fsspec
+from torch.utils.data import DataLoader
 
 from src.soil_moisture_trio.config import ClassifierConfig
 from src.soil_moisture_trio.model import SoilData, DryWetClassifier
@@ -29,33 +29,6 @@ class DryWetClassifierPipeline:
         print(f"Using device: {self.device}")
         
         print(f"Pipeline initialized with config: {self.config.model_dump()}")
-    
-    def _generate_synthetic_data(self) -> Dict[str, np.ndarray]:
-        """Generate synthetic grids (replace with real NetCDF load)."""
-        grid_size = 20
-        np.random.seed(42)
-        lats = np.linspace(-10, 10, grid_size)
-        lons = np.linspace(-20, 20, grid_size)
-        lon, lat = np.meshgrid(lons, lats)
-        
-        soil_moisture = np.random.uniform(0, 0.5, (grid_size, grid_size))
-        temperature = np.random.uniform(15, 35, (grid_size, grid_size))  # Vegetation index
-        ndvi = np.random.uniform(-0.1, 1.0, (grid_size, grid_size))  # Vegetation index
-        ndwi = np.random.uniform(-0.5, 0.5, (grid_size, grid_size))  # Water index
-        fire_index = np.random.uniform(0, 10, (grid_size, grid_size))  # Fire risk
-        vpd = np.random.uniform(0, 50, (grid_size, grid_size))  # Vapor pressure deficit
-        
-        print("Synthetic data generated. Shapes:", (grid_size, grid_size) * 5)
-        return {
-            'soil_moisture': soil_moisture,
-            'temperature': temperature,
-            'ndvi': ndvi,
-            'ndwi': ndwi,
-            'fire_index': fire_index,
-            'vpd': vpd,
-            'lats': lats,
-            'lons': lons
-        }
     
     def _load_real_netcdf(self, file_path: str, var_name: str) -> np.ndarray:
         """Load a single variable from a real NetCDF file (e.g., via xarray)."""
@@ -150,20 +123,15 @@ class DryWetClassifierPipeline:
             'lons': lons
         }
 
-    def prepare_data(self, data_source: str = 'synthetic', file_path: Optional[str] = None) -> None:
-        """Prep X/y from data source."""
-        if data_source == 'synthetic':
-            data = self._generate_synthetic_data()
-        elif data_source == 'netcdf':
-            data = self._load_all_real_data()
-        else:
-            raise ValueError("Use 'synthetic' or 'netcdf'.")
+    def prepare_data(self) -> None:
+        """Prep X/y from the configured real-world data sources."""
+        data = self._load_all_real_data()
         
         # Flatten to samples
         X = np.column_stack([
             data['soil_moisture'].flatten(),
             data['temperature'].flatten(),
-            data['ndvi'].flatten(), # Synthetic
+            data['ndvi'].flatten(), # Placeholder until real NDVI integration
             data['vpd'].flatten()
         ])
 
@@ -242,7 +210,7 @@ class DryWetClassifierPipeline:
         X_grid = np.column_stack([
             self.data_grids['soil_moisture'].flatten(),
             self.data_grids['temperature'].flatten(),
-            self.data_grids['ndvi'].flatten(), # Synthetic
+            self.data_grids['ndvi'].flatten(), # Placeholder until real NDVI integration
             self.data_grids['vpd'].flatten()
         ])
         

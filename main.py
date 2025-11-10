@@ -14,7 +14,7 @@ def run_pipeline(
     # Init & prep
     config = ClassifierConfig(moisture_threshold=0.2)  # Tweak via Pydantic
     pipeline = DryWetClassifierPipeline(config)
-    pipeline.prepare_data('netcdf')  # Or 'synthetic', path='your_file.nc'
+    pipeline.prepare_data()
     
     # Train & eval
     pipeline.train()

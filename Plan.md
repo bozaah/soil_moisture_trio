@@ -27,6 +27,7 @@ This document outlines the development plan for the `soil-moisture-trio` project
     - [ ] **NDVI:** Integrate CSIRO MODIS-derived data (COG). (Currently using synthetic data; direct access to COG proving difficult.)
     - [ ] **NDWI:** Removed at this stage.
     - [ ] **Fire Index:** Removed at this stage.
+    - [x] Retire the synthetic-data code path so the pipeline exclusively consumes the real feeds (tests now mock `_load_all_real_data` for speed).
 
 - [x] **Develop Visualization (`folium`):**
     - [x] Create a new script to generate an interactive HTML map using `folium`.
