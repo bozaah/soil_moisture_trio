@@ -14,6 +14,8 @@ def run_pipeline(
     catboost_learning_rate: float | None = None,
     risk_plot_path: str | None = None,
     year: int | None = None,
+    start_date: str | None = None,
+    end_date: str | None = None,
 ) -> None:
     """Execute the end-to-end training/eval flow with optional visualization."""
     # Init & prep
@@ -26,9 +28,17 @@ def run_pipeline(
         config_kwargs["catboost_depth"] = catboost_depth
     if catboost_learning_rate is not None:
         config_kwargs["catboost_learning_rate"] = catboost_learning_rate
+    if start_date is not None:
+        config_kwargs["start_date"] = start_date
+    if end_date is not None:
+        config_kwargs["end_date"] = end_date
     config = ClassifierConfig(**config_kwargs)
     pipeline = DryWetClassifierPipeline(config)
     pipeline.prepare_data()
+    if pipeline.time_metadata:
+        print(
+            f"Time window: {pipeline.time_metadata['time_start']} to {pipeline.time_metadata['time_end']}"
+        )
     
     # Train & eval
     pipeline.train()
@@ -54,6 +64,7 @@ def run_pipeline(
             lons=pipeline.data_grids['lons'],
             summary=risk_summary,
             base_path=risk_output_prefix,
+            time_metadata=pipeline.time_metadata,
         )
         print(f"Risk layer saved to {files['netcdf']} and summary to {files['summary']}")
 
@@ -120,6 +131,18 @@ if __name__ == "__main__":
         help="Override the data year (defaults to config value, currently 2024).",
     )
     parser.add_argument(
+        "--start-date",
+        type=str,
+        default=None,
+        help="Start date (YYYY-MM-DD) for averaging the inputs.",
+    )
+    parser.add_argument(
+        "--end-date",
+        type=str,
+        default=None,
+        help="End date (YYYY-MM-DD) for averaging the inputs.",
+    )
+    parser.add_argument(
         "--risk-plot-path",
         default=None,
         help="If provided, saves a PNG rendering of the risk layer to this path.",
@@ -134,4 +157,6 @@ if __name__ == "__main__":
         catboost_learning_rate=args.catboost_learning_rate,
         risk_plot_path=args.risk_plot_path,
         year=args.year,
+        start_date=args.start_date,
+        end_date=args.end_date,
     )

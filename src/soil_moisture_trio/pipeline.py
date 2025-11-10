@@ -2,6 +2,7 @@ import os
 from typing import Any, Dict, Optional
 
 import numpy as np
+import pandas as pd
 import rioxarray as rio
 from catboost import CatBoostClassifier, Pool
 import xarray as xr
@@ -16,6 +17,7 @@ class DryWetClassifierPipeline:
         self.model: Optional[CatBoostClassifier] = None
         self.valid_mask_grid: Optional[np.ndarray] = None
         self.valid_mask_flat: Optional[np.ndarray] = None
+        self.time_metadata: Optional[Dict[str, str]] = None
         print(f"Pipeline initialized with config: {self.config.model_dump()}")
     
     def _align_lat_lon(
@@ -58,40 +60,42 @@ class DryWetClassifierPipeline:
         
         return aligned, lat_array[lat_indices], lon_array[lon_indices]
     
-    def _load_real_netcdf(self, file_path: str, var_name: str) -> np.ndarray:
-        """Load a single variable from a real NetCDF file (e.g., via xarray)."""
+    def _load_real_netcdf(self, file_path: str, var_name: str) -> tuple[np.ndarray, Dict[str, str]]:
+        """Load a single variable from NetCDF and average over the requested time window."""
         print(f"Loading {var_name} from {file_path}...")
+        start_date = self.config.start_date
+        end_date = self.config.end_date or start_date
+        time_metadata: Dict[str, str] = {}
+
         if file_path.startswith('s3://') or file_path.startswith('https://s3'):
-            # Set environment variables for GDAL and AWS S3 access
-            os.environ['GDAL_DISABLE_READDIR_ON_OPEN'] = 'EMPTY_DIR'
             os.environ['AWS_NO_SIGN_REQUEST'] = 'YES'
-            os.environ['GDAL_MAX_RAW_BLOCK_CACHE_SIZE'] = '200000000'
-            os.environ['GDAL_SWATH_SIZE'] = '200000000'
-            os.environ['VSI_CURL_CACHE_SIZE'] = '200000000'
-            os.environ['GDAL_SKIP'] = 'netCDF'
-            os.environ['AWS_NO_SIGN_REQUEST'] = 'YES' # Ensure this is set for public S3 access
-            os.environ['AWS_REQUEST_PAYER'] = 'requester' # For requester pays buckets
-            
-            with rio.open_rasterio(file_path, chunks=(1,1024,1024)) as ds:
-                # For now, we'll just take the first time step.
-                # We will need to handle time alignment later.
-                data = ds.isel(band=0).values
-        elif file_path.startswith('http://') or file_path.startswith('https://'):
-            # Check if it's an OPeNDAP URL (e.g., NCI THREDDS)
-            if 'thredds.nci.org.au/thredds/dodsC' in file_path:
-                with xr.open_dataset(file_path) as ds:
-                    data = ds[var_name].isel(time=0).values
-            else:
-                # Use rio.open_rasterio for generic HTTP/HTTPS NetCDF files
-                with rio.open_rasterio(file_path, chunks=(1,1024,1024)) as ds:
-                    # For now, we'll just take the first time step.
-                    # We will need to handle time alignment later.
-                    data = ds.isel(band=0).values
-        else:
-            # Fallback for local files or other protocols
-            with xr.open_dataset(file_path) as ds:
-                data = ds[var_name].isel(time=0).values
-        return data
+            os.environ['AWS_REQUEST_PAYER'] = 'requester'
+
+        with xr.open_dataset(file_path) as ds:
+            data_array = ds[var_name]
+            if 'time' in data_array.dims:
+                if start_date and end_date:
+                    time_slice = slice(str(start_date), str(end_date))
+                elif start_date:
+                    time_slice = slice(str(start_date), str(start_date))
+                elif self.config.end_date and not start_date:
+                    # Only end_date provided
+                    time_slice = slice(str(self.config.end_date), str(self.config.end_date))
+                else:
+                    # default to first timestep
+                    time_slice = slice(data_array['time'].values[0], data_array['time'].values[0])
+
+                selected = data_array.sel(time=time_slice)
+                if selected.sizes.get('time', 0) == 0:
+                    raise ValueError(
+                        f"No data found for {var_name} in selected time window {time_slice}."
+                    )
+                time_start = pd.Timestamp(selected['time'].min().item()).isoformat()
+                time_end = pd.Timestamp(selected['time'].max().item()).isoformat()
+                time_metadata = {'time_start': time_start, 'time_end': time_end}
+                data_array = selected.mean(dim='time')
+            data = data_array.values
+            return data, time_metadata
 
     def _load_all_real_data(self) -> Dict[str, np.ndarray]:
         """Load all required variables from their respective NetCDF sources."""
@@ -111,17 +115,17 @@ class DryWetClassifierPipeline:
         }
 
         # For now, we only load soil moisture. We'll add the others later.
-        soil_moisture_data = self._load_real_netcdf(
+        soil_moisture_data, soil_meta = self._load_real_netcdf(
             data_sources['soil_moisture']['url'],
             data_sources['soil_moisture']['var_name']
         )
 
-        temperature_data = self._load_real_netcdf(
+        temperature_data, temp_meta = self._load_real_netcdf(
             data_sources['temperature']['url'],
             data_sources['temperature']['var_name']
         )
 
-        vpd_data = self._load_real_netcdf(
+        vpd_data, vpd_meta = self._load_real_netcdf(
             data_sources['vpd']['url'],
             data_sources['vpd']['var_name']
         )
@@ -141,6 +145,18 @@ class DryWetClassifierPipeline:
             lons,
         )
 
+        metas = [m for m in (soil_meta, temp_meta, vpd_meta) if m]
+        if metas:
+            start_times = [m['time_start'] for m in metas if 'time_start' in m]
+            end_times = [m['time_end'] for m in metas if 'time_end' in m]
+            if start_times and end_times:
+                self.time_metadata = {
+                    'time_start': min(start_times),
+                    'time_end': max(end_times),
+                }
+        else:
+            self.time_metadata = None
+
         grid_shape = aligned_data['soil_moisture'].shape
         ndvi = np.random.uniform(-0.1, 1.0, grid_shape)
         ndwi = np.random.uniform(-0.5, 0.5, grid_shape)
@@ -154,7 +170,8 @@ class DryWetClassifierPipeline:
             'fire_index': fire_index,
             'vpd': aligned_data['vpd'],
             'lats': clipped_lats,
-            'lons': clipped_lons
+            'lons': clipped_lons,
+            'time_metadata': self.time_metadata,
         }
 
     def prepare_data(self) -> None:

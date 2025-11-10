@@ -1,7 +1,7 @@
 import json
 from enum import IntEnum
 from pathlib import Path
-from typing import Dict, Tuple, Union
+from typing import Dict, Optional, Tuple, Union
 
 import numpy as np
 import xarray as xr
@@ -126,6 +126,7 @@ def save_risk_outputs(
     lons: np.ndarray,
     summary: Dict[str, Dict[str, float]],
     base_path: Union[str, Path] = "risk_layer",
+    time_metadata: Optional[Dict[str, str]] = None,
 ) -> Dict[str, Path]:
     """
     Persist the risk map to NetCDF and the summary to JSON.
@@ -157,10 +158,13 @@ def save_risk_outputs(
         coords={"lat": lats, "lon": lons},
     )
     ds.attrs["risk_summary_json"] = json.dumps(summary)
+    if time_metadata:
+        ds.attrs.update(time_metadata)
     ds.to_netcdf(nc_path)
 
     with summary_path.open("w", encoding="utf-8") as fp:
-        json.dump(summary, fp, indent=2)
+        payload = {"summary": summary, "time_metadata": time_metadata or {}}
+        json.dump(payload, fp, indent=2)
 
     return {"netcdf": nc_path, "summary": summary_path}
 

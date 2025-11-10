@@ -1,3 +1,4 @@
+from datetime import date
 from typing import Optional
 
 from pydantic import BaseModel, Field
@@ -31,6 +32,12 @@ class ClassifierConfig(BaseModel):
         None, ge=0, description="Override CatBoost learning rate (defaults to lr)"
     )
     year: int = Field(2024, ge=1900, le=2100, description="Year for data retrieval")
+    start_date: Optional[date] = Field(
+        None, description="Start date for averaging (inclusive). Defaults to first timestep."
+    )
+    end_date: Optional[date] = Field(
+        None, description="End date for averaging (inclusive). Defaults to start_date or first timestep."
+    )
     min_lat: float = Field(-45.0, description="Minimum latitude for clipping (degrees)")
     max_lat: float = Field(-8.0, description="Maximum latitude for clipping (degrees)")
     min_lon: float = Field(110.0, description="Minimum longitude for clipping (degrees)")

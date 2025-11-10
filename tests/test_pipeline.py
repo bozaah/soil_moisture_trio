@@ -49,6 +49,7 @@ def _mock_real_data(with_nan: bool = False) -> dict:
         'vpd': vpd,
         'lats': lats,
         'lons': lons,
+        'time_metadata': {'time_start': '2025-01-01T00:00:00', 'time_end': '2025-01-01T00:00:00'},
     }
 
 
@@ -80,6 +81,7 @@ def test_prepare_data_populates_expected_grids(monkeypatch):
 
     required_keys = {'soil_moisture', 'temperature', 'ndvi', 'vpd', 'lats', 'lons'}
     assert required_keys.issubset(pipeline.data_grids.keys())
+    assert 'time_metadata' in pipeline.data_grids
     valid_cells = int(pipeline.valid_mask_grid.sum())
     assert pipeline.X_train.shape[0] == int(0.8 * valid_cells)
     assert pipeline.X_train.shape[0] + pipeline.X_test.shape[0] == valid_cells
@@ -174,9 +176,10 @@ def test_save_risk_outputs_writes_files(tmp_path):
         'valid_cells': {'count': 2, 'percentage': 0.5, 'label': 'Valid grid cells'},
         'total_cells': {'count': 4, 'percentage': 1.0, 'label': 'Total grid cells'},
     }
+    time_meta = {'time_start': '2025-01-01T00:00:00', 'time_end': '2025-01-07T00:00:00'}
 
     base = tmp_path / "nested" / "risk_layer"
-    files = save_risk_outputs(risk_map, lats, lons, summary, base)
+    files = save_risk_outputs(risk_map, lats, lons, summary, base, time_metadata=time_meta)
 
     assert files['netcdf'].exists()
     assert files['summary'].exists()
@@ -184,10 +187,13 @@ def test_save_risk_outputs_writes_files(tmp_path):
     ds = xr.load_dataset(files['netcdf'])
     np.testing.assert_array_equal(ds['risk_level'].values, risk_map)
     assert json.loads(ds.attrs['risk_summary_json']) == summary
+    for key, value in time_meta.items():
+        assert ds.attrs[key] == value
 
     with files['summary'].open() as fp:
-        saved_summary = json.load(fp)
-    assert saved_summary == summary
+        payload = json.load(fp)
+    assert payload['summary'] == summary
+    assert payload['time_metadata'] == time_meta
 
 
 def test_save_risk_plot_creates_png(tmp_path):
