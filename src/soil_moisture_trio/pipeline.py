@@ -86,6 +86,11 @@ class DryWetClassifierPipeline:
         if file_path.startswith('s3://') or file_path.startswith('https://s3'):
             os.environ['AWS_NO_SIGN_REQUEST'] = 'YES'
             os.environ['AWS_REQUEST_PAYER'] = 'requester'
+            os.environ['GDAL_DISABLE_READDIR_ON_OPEN'] = 'EMPTY_DIR'
+            os.environ['GDAL_MAX_RAW_BLOCK_CACHE_SIZE'] = '200000000'
+            os.environ['GDAL_SWATH_SIZE'] = '200000000'
+            os.environ['VSI_CURL_CACHE_SIZE'] = '200000000'
+            os.environ['GDAL_SKIP'] = 'netCDF'
 
         if 'thredds.nci.org.au' in file_path:
             with xr.open_dataset(file_path) as ds:
