@@ -60,42 +60,66 @@ class DryWetClassifierPipeline:
         
         return aligned, lat_array[lat_indices], lon_array[lon_indices]
     
+    def _determine_time_window(self, time_values: np.ndarray) -> tuple[slice, Dict[str, str]]:
+        if time_values.size == 0:
+            return slice(None), {}
+        pd_times = pd.to_datetime(time_values)
+        start_target = pd.Timestamp(self.config.start_date) if self.config.start_date else pd_times[0]
+        end_target = pd.Timestamp(self.config.end_date) if self.config.end_date else (pd.Timestamp(self.config.start_date) if self.config.start_date else pd_times[-1])
+        if end_target < start_target:
+            end_target = start_target
+        mask = (pd_times >= start_target) & (pd_times <= end_target)
+        if not mask.any():
+            raise ValueError(f"No data found between {start_target} and {end_target}.")
+        indices = np.where(mask)[0]
+        time_slice = slice(indices[0], indices[-1] + 1)
+        metadata = {
+            'time_start': pd_times[indices[0]].isoformat(),
+            'time_end': pd_times[indices[-1]].isoformat(),
+        }
+        return time_slice, metadata
+
     def _load_real_netcdf(self, file_path: str, var_name: str) -> tuple[np.ndarray, Dict[str, str]]:
         """Load a single variable from NetCDF and average over the requested time window."""
         print(f"Loading {var_name} from {file_path}...")
-        start_date = self.config.start_date
-        end_date = self.config.end_date or start_date
-        time_metadata: Dict[str, str] = {}
 
         if file_path.startswith('s3://') or file_path.startswith('https://s3'):
             os.environ['AWS_NO_SIGN_REQUEST'] = 'YES'
             os.environ['AWS_REQUEST_PAYER'] = 'requester'
 
-        with xr.open_dataset(file_path) as ds:
-            data_array = ds[var_name]
-            if 'time' in data_array.dims:
-                if start_date and end_date:
-                    time_slice = slice(str(start_date), str(end_date))
-                elif start_date:
-                    time_slice = slice(str(start_date), str(start_date))
-                elif self.config.end_date and not start_date:
-                    # Only end_date provided
-                    time_slice = slice(str(self.config.end_date), str(self.config.end_date))
-                else:
-                    # default to first timestep
-                    time_slice = slice(data_array['time'].values[0], data_array['time'].values[0])
+        if 'thredds.nci.org.au' in file_path:
+            with xr.open_dataset(file_path) as ds:
+                data_array = ds[var_name]
+                time_meta = {}
+                if 'time' in data_array.dims:
+                    time_slice, time_meta = self._determine_time_window(ds['time'].values)
+                    data_array = data_array.isel(time=time_slice).mean(dim='time')
+                data = data_array.values
+            return data, time_meta
 
-                selected = data_array.sel(time=time_slice)
-                if selected.sizes.get('time', 0) == 0:
-                    raise ValueError(
-                        f"No data found for {var_name} in selected time window {time_slice}."
-                    )
-                time_start = pd.Timestamp(selected['time'].min().item()).isoformat()
-                time_end = pd.Timestamp(selected['time'].max().item()).isoformat()
-                time_metadata = {'time_start': time_start, 'time_end': time_end}
-                data_array = selected.mean(dim='time')
-            data = data_array.values
-            return data, time_metadata
+        with rio.open_rasterio(file_path, chunks={'band': 1, 'y': 512, 'x': 512}) as da:
+            data_array = da.load()
+
+        time_meta: Dict[str, str] = {}
+        if 'band' in data_array.dims:
+            band_values = data_array['band'].values
+            try:
+                with xr.open_dataset(file_path) as meta_ds:
+                    if 'time' in meta_ds:
+                        time_slice, time_meta = self._determine_time_window(meta_ds['time'].values)
+                        start_idx, stop_idx = time_slice.start, time_slice.stop
+                    else:
+                        start_idx = stop_idx = None
+            except Exception:
+                start_idx = stop_idx = None
+
+            if start_idx is not None and stop_idx is not None and len(band_values) >= stop_idx:
+                band_slice = slice(band_values[start_idx], band_values[stop_idx - 1])
+                data_array = data_array.sel(band=band_slice).mean(dim='band')
+            else:
+                data_array = data_array.isel(band=0)
+        data = data_array.values
+        return data, time_meta
 
     def _load_all_real_data(self) -> Dict[str, np.ndarray]:
         """Load all required variables from their respective NetCDF sources."""
