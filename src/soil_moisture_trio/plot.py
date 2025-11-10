@@ -39,14 +39,16 @@ def save_risk_plot(
 
     colors = [RISK_COLORS[level] for level in RiskLevel]
     cmap = ListedColormap(colors)
+    cmap.set_bad("#bdbdbd")
     bounds = np.arange(len(RiskLevel) + 1) - 0.5
     norm = BoundaryNorm(bounds, cmap.N)
 
     fig, ax = plt.subplots(figsize=(8, 6), constrained_layout=True)
-    mesh = ax.pcolormesh(
+    risk_display = np.ma.masked_less(risk_map, 0)
+    ax.pcolormesh(
         lons,
         lats,
-        risk_map,
+        risk_display,
         cmap=cmap,
         norm=norm,
         shading="nearest",
@@ -60,6 +62,9 @@ def save_risk_plot(
         plt.Rectangle((0, 0), 1, 1, color=RISK_COLORS[level]) for level in RiskLevel
     ]
     labels = [RISK_LABELS[level] for level in RiskLevel]
+    if np.any(risk_map < 0):
+        handles.append(plt.Rectangle((0, 0), 1, 1, color="#bdbdbd"))
+        labels.append("No Data")
     ax.legend(
         handles,
         labels,

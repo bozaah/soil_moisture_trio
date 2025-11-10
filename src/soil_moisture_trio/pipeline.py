@@ -2,9 +2,9 @@ import os
 from typing import Any, Dict, Optional
 
 import numpy as np
-import xarray as xr
 import rioxarray as rio
 from catboost import CatBoostClassifier, Pool
+import xarray as xr
 
 from src.soil_moisture_trio.config import ClassifierConfig
 from src.soil_moisture_trio.risk import assess_risk_levels
@@ -14,7 +14,49 @@ class DryWetClassifierPipeline:
     def __init__(self, config: Optional[ClassifierConfig] = None):
         self.config = config or ClassifierConfig()
         self.model: Optional[CatBoostClassifier] = None
+        self.valid_mask_grid: Optional[np.ndarray] = None
+        self.valid_mask_flat: Optional[np.ndarray] = None
         print(f"Pipeline initialized with config: {self.config.model_dump()}")
+    
+    def _align_lat_lon(
+        self,
+        data_arrays: Dict[str, np.ndarray],
+        lats: np.ndarray,
+        lons: np.ndarray,
+    ) -> tuple[Dict[str, np.ndarray], np.ndarray, np.ndarray]:
+        """Ensure latitude/longitude are ascending and clip to config bounds."""
+        aligned = {}
+        lat_array = np.array(lats)
+        lon_array = np.array(lons)
+        
+        lat_desc = lat_array[0] > lat_array[-1]
+        lon_desc = lon_array[0] > lon_array[-1]
+        
+        for key, arr in data_arrays.items():
+            temp_arr = arr.copy()
+            if lat_desc:
+                temp_arr = temp_arr[::-1, ...]
+            if lon_desc:
+                temp_arr = temp_arr[:, ::-1, ...]
+            aligned[key] = temp_arr
+        
+        if lat_desc:
+            lat_array = lat_array[::-1]
+        if lon_desc:
+            lon_array = lon_array[::-1]
+        
+        lat_mask = (lat_array >= self.config.min_lat) & (lat_array <= self.config.max_lat)
+        lon_mask = (lon_array >= self.config.min_lon) & (lon_array <= self.config.max_lon)
+        if not lat_mask.any() or not lon_mask.any():
+            raise ValueError("Clipping bounds produced an empty grid. Adjust min/max lat/lon.")
+        
+        lat_indices = np.where(lat_mask)[0]
+        lon_indices = np.where(lon_mask)[0]
+        
+        for key in aligned:
+            aligned[key] = aligned[key][np.ix_(lat_mask, lon_mask)]
+        
+        return aligned, lat_array[lat_indices], lon_array[lon_indices]
     
     def _load_real_netcdf(self, file_path: str, var_name: str) -> np.ndarray:
         """Load a single variable from a real NetCDF file (e.g., via xarray)."""
@@ -89,24 +131,30 @@ class DryWetClassifierPipeline:
             lats = ds['latitude'].values
             lons = ds['longitude'].values
 
-        # For now, we will use synthetic data for the other variables.
-        # This will be replaced as we integrate the other data sources.
-        grid_size_lat = len(lats)
-        grid_size_lon = len(lons)
-        # temperature = np.random.uniform(15, 35, (grid_size_lat, grid_size_lon)) # This is now loaded
-        ndvi = np.random.uniform(-0.1, 1.0, (grid_size_lat, grid_size_lon)) # Reintroduce synthetic NDVI
-        ndwi = np.random.uniform(-0.5, 0.5, (grid_size_lat, grid_size_lon))
-        fire_index = np.random.uniform(0, 10, (grid_size_lat, grid_size_lon)) # Reintroduce synthetic Fire Index
+        aligned_data, clipped_lats, clipped_lons = self._align_lat_lon(
+            {
+                'soil_moisture': soil_moisture_data,
+                'temperature': temperature_data,
+                'vpd': vpd_data,
+            },
+            lats,
+            lons,
+        )
+
+        grid_shape = aligned_data['soil_moisture'].shape
+        ndvi = np.random.uniform(-0.1, 1.0, grid_shape)
+        ndwi = np.random.uniform(-0.5, 0.5, grid_shape)
+        fire_index = np.random.uniform(0, 10, grid_shape)
 
         return {
-            'soil_moisture': soil_moisture_data,
-            'temperature': temperature_data,
+            'soil_moisture': aligned_data['soil_moisture'],
+            'temperature': aligned_data['temperature'],
             'ndvi': ndvi,
             'ndwi': ndwi,
             'fire_index': fire_index,
-            'vpd': vpd_data,
-            'lats': lats,
-            'lons': lons
+            'vpd': aligned_data['vpd'],
+            'lats': clipped_lats,
+            'lons': clipped_lons
         }
 
     def prepare_data(self) -> None:
@@ -114,35 +162,45 @@ class DryWetClassifierPipeline:
         data = self._load_all_real_data()
         
         # Flatten to samples
+        soil = data['soil_moisture']
+        temp = data['temperature']
+        ndvi = data['ndvi']
+        vpd = data['vpd']
+        valid_mask_grid = (
+            np.isfinite(soil) &
+            np.isfinite(temp) &
+            np.isfinite(ndvi) &
+            np.isfinite(vpd)
+        )
+        valid_flat = valid_mask_grid.flatten()
+        if not valid_flat.any():
+            raise ValueError("No valid grid cells available after masking NaN values.")
+        
         X = np.column_stack([
-            data['soil_moisture'].flatten(),
-            data['temperature'].flatten(),
-            data['ndvi'].flatten(), # Placeholder until real NDVI integration
-            data['vpd'].flatten()
+            soil.flatten(),
+            temp.flatten(),
+            ndvi.flatten(),  # Placeholder until real NDVI integration
+            vpd.flatten()
         ])
 
-        # Handle NaN values
-        if np.isnan(X).any():
-            print("Warning: NaN values found in input data. Replacing with mean.")
-            col_mean = np.nanmean(X, axis=0)
-            inds = np.where(np.isnan(X))
-            X[inds] = np.take(col_mean, inds[1])
-        
-        # Labels: Dry if low moisture OR (low NDVI + high fire) OR (low NDWI + high temp)
-        # Updated classification logic
-        y = np.where(
-            (X[:, 0] < self.config.moisture_threshold) &
-            ((X[:, 1] > self.config.temp_threshold) | (X[:, 3] > self.config.vpd_threshold)),
+        y_full = np.where(
+            (soil.flatten() < self.config.moisture_threshold) &
+            ((temp.flatten() > self.config.temp_threshold) | (vpd.flatten() > self.config.vpd_threshold)),
             0, 1
         ).astype(np.float32)
-        
-        # Split
+
+        X = X[valid_flat]
+        y = y_full[valid_flat]
+
         split = int(0.8 * len(X))
         self.X_train, self.X_test = X[:split], X[split:]
         self.y_train, self.y_test = y[:split], y[split:]
         self.data_grids = data  # Store for grid prediction
+        self.valid_mask_grid = valid_mask_grid
+        self.valid_mask_flat = valid_flat
         
-        print(f"Data prepared. Labels: {np.bincount(y.astype(int))} (dry, wet)")
+        counts = np.bincount(y.astype(int), minlength=2)
+        print(f"Data prepared. Labels: {counts} (dry, wet)")
     
     def build_model(self) -> None:
         """Initialize CatBoost model."""
@@ -184,23 +242,32 @@ class DryWetClassifierPipeline:
         """Classify full grid."""
         if not self.model:
             raise ValueError("Train first!")
+        if self.valid_mask_grid is None or self.valid_mask_flat is None:
+            raise ValueError("Prepare data before predicting the grid.")
         
-        X_grid = np.column_stack([
+        features = np.column_stack([
             self.data_grids['soil_moisture'].flatten(),
             self.data_grids['temperature'].flatten(),
-            self.data_grids['ndvi'].flatten(), # Placeholder until real NDVI integration
+            self.data_grids['ndvi'].flatten(),  # Placeholder until real NDVI integration
             self.data_grids['vpd'].flatten()
         ])
         
-        pred_probs = self.model.predict_proba(X_grid)[:, 1].reshape(
-            self.data_grids['soil_moisture'].shape
-        )
-        pred_class = (pred_probs > 0.5).astype(int)
+        valid_flat = self.valid_mask_flat
+        pred_probs_flat = np.full(features.shape[0], np.nan, dtype=np.float32)
+        pred_probs_flat[valid_flat] = self.model.predict_proba(features[valid_flat])[:, 1]
         
-        dry_count = np.sum(pred_class == 0)
-        wet_count = np.sum(pred_class == 1)
-        print(f"Grid classified. Dry cells: {dry_count}, Wet cells: {wet_count}")
-        return pred_class  # Binary map for export/visualization
+        grid_shape = self.data_grids['soil_moisture'].shape
+        pred_class = np.full(grid_shape, -1, dtype=np.int8)
+        valid_classes = (pred_probs_flat[valid_flat] > 0.5).astype(np.int8)
+        pred_class_flat = pred_class.flatten()
+        pred_class_flat[valid_flat] = valid_classes
+        pred_class = pred_class_flat.reshape(grid_shape)
+        
+        dry_count = int(np.sum(pred_class == 0))
+        wet_count = int(np.sum(pred_class == 1))
+        invalid_count = int(np.sum(pred_class < 0))
+        print(f"Grid classified. Dry: {dry_count}, Wet: {wet_count}, No data: {invalid_count}")
+        return pred_class  # -1 denotes invalid/ocean cells
 
     def assess_risk(self, classification_grid: Optional[np.ndarray] = None) -> Dict[str, Any]:
         """

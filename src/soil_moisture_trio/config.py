@@ -31,3 +31,7 @@ class ClassifierConfig(BaseModel):
         None, ge=0, description="Override CatBoost learning rate (defaults to lr)"
     )
     year: int = Field(2024, ge=1900, le=2100, description="Year for data retrieval")
+    min_lat: float = Field(-45.0, description="Minimum latitude for clipping (degrees)")
+    max_lat: float = Field(-8.0, description="Maximum latitude for clipping (degrees)")
+    min_lon: float = Field(110.0, description="Minimum longitude for clipping (degrees)")
+    max_lon: float = Field(155.0, description="Maximum longitude for clipping (degrees)")

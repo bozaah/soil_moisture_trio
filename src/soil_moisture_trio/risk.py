@@ -49,16 +49,21 @@ def _compute_risk_map(
     temperature = data_grids['temperature']
     vpd = data_grids['vpd']
 
-    risk_map = np.full(soil_moisture.shape, RiskLevel.LOW, dtype=np.int8)
+    risk_map = np.full(soil_moisture.shape, -1, dtype=np.int8)
+    valid_mask = classification_grid >= 0
+    if not valid_mask.any():
+        return risk_map
+    risk_map[valid_mask] = RiskLevel.LOW
 
-    dry_mask = classification_grid == 0
+    dry_mask = valid_mask & (classification_grid == 0)
     critical_mask = (
+        valid_mask &
         (soil_moisture <= config.severe_moisture_threshold) &
         ((temperature >= config.critical_temp_threshold) | (vpd >= config.critical_vpd_threshold))
     )
     elevated_mask = dry_mask & ~critical_mask
     watch_mask = (
-        (~dry_mask) &
+        (~dry_mask) & valid_mask &
         (
             (soil_moisture <= config.moisture_threshold + config.watch_margin) |
             (temperature >= config.temp_threshold) |
@@ -89,15 +94,28 @@ def assess_risk_levels(
     risk_map = _compute_risk_map(data_grids, classification_grid, config)
 
     total = risk_map.size
+    valid_mask = risk_map >= 0
+    total_valid = int(np.sum(valid_mask))
+    invalid_count = total - total_valid
     summary: Dict[str, Dict[str, float]] = {}
     for level in RiskLevel:
         count = int(np.sum(risk_map == level))
         summary[level.name.lower()] = {
             "count": count,
-            "percentage": (count / total) if total else 0.0,
+            "percentage": (count / total_valid) if total_valid else 0.0,
             "label": RISK_LABELS[level],
         }
 
+    summary["invalid"] = {
+        "count": invalid_count,
+        "percentage": (invalid_count / total) if total else 0.0,
+        "label": "No Data",
+    }
+    summary["valid_cells"] = {
+        "count": total_valid,
+        "percentage": (total_valid / total) if total else 0.0,
+        "label": "Valid grid cells",
+    }
     summary["total_cells"] = {"count": total, "percentage": 1.0, "label": "Total grid cells"}
     return risk_map, summary
 

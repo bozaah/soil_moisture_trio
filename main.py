@@ -41,8 +41,11 @@ def run_pipeline(
     risk_map = risk_report["risk_map"]
     risk_summary = risk_report["summary"]
     print("Risk summary (counts):")
-    for level, stats in risk_summary.items():
-        print(f"  {level}: {stats['count']} cells ({stats['percentage']:.2%})")
+    preferred_order = ["critical", "elevated", "watch", "low", "invalid", "valid_cells", "total_cells"]
+    for key in preferred_order:
+        if key in risk_summary:
+            stats = risk_summary[key]
+            print(f"  {key}: {stats['count']} cells ({stats['percentage']:.2%})")
 
     if risk_output_prefix:
         files = save_risk_outputs(
@@ -111,6 +114,12 @@ if __name__ == "__main__":
         help="Override CatBoost learning rate (defaults to config.lr).",
     )
     parser.add_argument(
+        "--year",
+        type=int,
+        default=None,
+        help="Override the data year (defaults to config value, currently 2024).",
+    )
+    parser.add_argument(
         "--risk-plot-path",
         default=None,
         help="If provided, saves a PNG rendering of the risk layer to this path.",
@@ -125,10 +134,4 @@ if __name__ == "__main__":
         catboost_learning_rate=args.catboost_learning_rate,
         risk_plot_path=args.risk_plot_path,
         year=args.year,
-    )
-    parser.add_argument(
-        "--year",
-        type=int,
-        default=None,
-        help="Override the data year (defaults to config value, currently 2024).",
     )

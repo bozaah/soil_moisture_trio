@@ -13,7 +13,7 @@ from src.soil_moisture_trio.risk import RiskLevel, assess_risk_levels, save_risk
 
 def _mock_real_data(with_nan: bool = False) -> dict:
     soil = np.array(
-        [[0.10, 0.40, 0.35],
+        [[0.10, 0.40, np.nan],
          [0.20, 0.18, 0.50],
          [0.12, 0.22, 0.60]],
         dtype=np.float32
@@ -21,13 +21,13 @@ def _mock_real_data(with_nan: bool = False) -> dict:
     if with_nan:
         soil[0, 0] = np.nan
     temperature = np.array(
-        [[36.0, 30.0, 25.0],
+        [[36.0, 30.0, np.nan],
          [32.0, 28.0, 22.0],
          [34.0, 27.0, 24.0]],
         dtype=np.float32
     )
     vpd = np.array(
-        [[35.0, 18.0, 12.0],
+        [[35.0, 18.0, np.nan],
          [22.0, 15.0, 10.0],
          [28.0, 19.0, 11.0]],
         dtype=np.float32
@@ -39,6 +39,7 @@ def _mock_real_data(with_nan: bool = False) -> dict:
     lons = np.linspace(115, 117, soil.shape[1])
     if with_nan:
         temperature[0, 0] = np.nan
+        vpd[0, 0] = np.nan
     return {
         'soil_moisture': soil,
         'temperature': temperature,
@@ -68,7 +69,8 @@ def test_pipeline_real_data_flow(monkeypatch):
     pred_map = pipeline.predict_grid()
     target_shape = pipeline.data_grids['soil_moisture'].shape
     assert pred_map.shape == target_shape
-    assert np.isin(pred_map, [0, 1]).all()
+    assert np.isin(pred_map[pred_map >= 0], [0, 1]).all()
+    assert np.any(pred_map < 0)
 
 
 def test_prepare_data_populates_expected_grids(monkeypatch):
@@ -78,8 +80,9 @@ def test_prepare_data_populates_expected_grids(monkeypatch):
 
     required_keys = {'soil_moisture', 'temperature', 'ndvi', 'vpd', 'lats', 'lons'}
     assert required_keys.issubset(pipeline.data_grids.keys())
-    assert pipeline.X_train.shape[0] == int(0.8 * pipeline.data_grids['soil_moisture'].size)
-    assert pipeline.X_test.shape[0] == pipeline.data_grids['soil_moisture'].size - pipeline.X_train.shape[0]
+    valid_cells = int(pipeline.valid_mask_grid.sum())
+    assert pipeline.X_train.shape[0] == int(0.8 * valid_cells)
+    assert pipeline.X_train.shape[0] + pipeline.X_test.shape[0] == valid_cells
 
 
 def test_prepare_data_replaces_nan(monkeypatch):
@@ -125,6 +128,24 @@ def test_assess_risk_levels_categorizes_cells():
     assert summary['total_cells']['count'] == 4
 
 
+def test_assess_risk_levels_handles_invalid_cells():
+    config = ClassifierConfig()
+    soil = np.array([[0.1, 0.3], [0.2, 0.4]])
+    temp = np.array([[36.0, 20.0], [28.0, 22.0]])
+    vpd = np.array([[35.0, 10.0], [15.0, 12.0]])
+    classification = np.array([[0, -1], [1, -1]])
+
+    risk_map, summary = assess_risk_levels(
+        {'soil_moisture': soil, 'temperature': temp, 'vpd': vpd},
+        classification,
+        config,
+    )
+
+    assert summary['invalid']['count'] == 2
+    assert summary['valid_cells']['count'] == 2
+    assert risk_map[0, 1] == -1
+
+
 def test_pipeline_assess_risk_returns_summary(monkeypatch):
     config = ClassifierConfig(epochs=1, batch_size=8)
     pipeline = DryWetClassifierPipeline(config)
@@ -137,18 +158,21 @@ def test_pipeline_assess_risk_returns_summary(monkeypatch):
     assert 'summary' in output
     assert output['risk_map'].shape == pipeline.data_grids['soil_moisture'].shape
     assert 'total_cells' in output['summary']
+    assert 'invalid' in output['summary']
 
 
 def test_save_risk_outputs_writes_files(tmp_path):
-    risk_map = np.array([[RiskLevel.LOW, RiskLevel.WATCH], [RiskLevel.ELEVATED, RiskLevel.CRITICAL]], dtype=np.int8)
+    risk_map = np.array([[RiskLevel.LOW, -1], [RiskLevel.ELEVATED, RiskLevel.CRITICAL]], dtype=np.int8)
     lats = np.array([0.0, 1.0])
     lons = np.array([10.0, 11.0])
     summary = {
-        'low': {'count': 1, 'percentage': 0.25, 'label': 'Low'},
-        'watch': {'count': 1, 'percentage': 0.25, 'label': 'Watch'},
-        'elevated': {'count': 1, 'percentage': 0.25, 'label': 'Elevated'},
-        'critical': {'count': 1, 'percentage': 0.25, 'label': 'Critical'},
-        'total_cells': {'count': 4, 'percentage': 1.0, 'label': 'Total'},
+        'low': {'count': 1, 'percentage': 0.5, 'label': 'Wet / Low Risk'},
+        'watch': {'count': 0, 'percentage': 0.0, 'label': 'Watch (approaching dry thresholds)'},
+        'elevated': {'count': 1, 'percentage': 0.5, 'label': 'Elevated Dry Risk'},
+        'critical': {'count': 1, 'percentage': 0.5, 'label': 'Critical Dry Risk'},
+        'invalid': {'count': 1, 'percentage': 0.25, 'label': 'No Data'},
+        'valid_cells': {'count': 2, 'percentage': 0.5, 'label': 'Valid grid cells'},
+        'total_cells': {'count': 4, 'percentage': 1.0, 'label': 'Total grid cells'},
     }
 
     base = tmp_path / "nested" / "risk_layer"
@@ -167,7 +191,7 @@ def test_save_risk_outputs_writes_files(tmp_path):
 
 
 def test_save_risk_plot_creates_png(tmp_path):
-    risk_map = np.array([[RiskLevel.LOW, RiskLevel.CRITICAL], [RiskLevel.WATCH, RiskLevel.ELEVATED]], dtype=np.int8)
+    risk_map = np.array([[RiskLevel.LOW, -1], [RiskLevel.WATCH, RiskLevel.ELEVATED]], dtype=np.int8)
     lats = np.array([0.0, 1.0])
     lons = np.array([10.0, 11.0])
     output = tmp_path / "plots" / "risk.png"

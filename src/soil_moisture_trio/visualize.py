@@ -9,7 +9,7 @@ from src.soil_moisture_trio.risk import RISK_COLORS, RISK_LABELS, RiskLevel
 def _add_summary_panel(map_obj: folium.Map, summary: Dict[str, Dict[str, float]]) -> None:
     """Attach a simple HTML summary panel showing risk counts."""
     rows = []
-    for key in ["critical", "elevated", "watch", "low"]:
+    for key in ["critical", "elevated", "watch", "low", "invalid"]:
         if key in summary:
             stats = summary[key]
             rows.append(
@@ -61,6 +61,8 @@ def create_interactive_map(
             lon_min, lon_max = lons[j], lons[j + 1]
 
             level = RiskLevel(int(risk_map[i, j]))
+            if level < 0:
+                continue
             color = RISK_COLORS[level]
             popup_html = f"<b>Risk Level:</b> {RISK_LABELS[level]}"
 
