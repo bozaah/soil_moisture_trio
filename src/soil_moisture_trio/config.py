@@ -1,3 +1,5 @@
+from typing import Optional
+
 from pydantic import BaseModel, Field
 
 # Pydantic Config Schema (for validation & easy tweaking)
@@ -21,4 +23,11 @@ class ClassifierConfig(BaseModel):
     lr: float = Field(0.01, ge=0)
     epochs: int = Field(30, ge=1)
     batch_size: int = Field(32, ge=1)
+    catboost_iterations: Optional[int] = Field(
+        None, ge=1, description="Override CatBoost iterations (defaults to epochs)"
+    )
+    catboost_depth: int = Field(6, ge=1, le=16, description="CatBoost tree depth")
+    catboost_learning_rate: Optional[float] = Field(
+        None, ge=0, description="Override CatBoost learning rate (defaults to lr)"
+    )
     year: int = Field(2024, ge=1900, le=2100, description="Year for data retrieval")

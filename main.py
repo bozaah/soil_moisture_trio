@@ -9,10 +9,20 @@ def run_pipeline(
     visualize: bool = False,
     output_path: str = "classification_map.html",
     risk_output_prefix: str | None = None,
+    catboost_iterations: int | None = None,
+    catboost_depth: int | None = None,
+    catboost_learning_rate: float | None = None,
 ) -> None:
     """Execute the end-to-end training/eval flow with optional visualization."""
     # Init & prep
-    config = ClassifierConfig(moisture_threshold=0.2)  # Tweak via Pydantic
+    config_kwargs = {"moisture_threshold": 0.2}
+    if catboost_iterations is not None:
+        config_kwargs["catboost_iterations"] = catboost_iterations
+    if catboost_depth is not None:
+        config_kwargs["catboost_depth"] = catboost_depth
+    if catboost_learning_rate is not None:
+        config_kwargs["catboost_learning_rate"] = catboost_learning_rate
+    config = ClassifierConfig(**config_kwargs)
     pipeline = DryWetClassifierPipeline(config)
     pipeline.prepare_data()
     
@@ -67,9 +77,30 @@ if __name__ == "__main__":
         default=None,
         help="If provided, writes risk_map NetCDF + JSON summary using this prefix (e.g. 'risk_layer')."
     )
+    parser.add_argument(
+        "--catboost-iterations",
+        type=int,
+        default=None,
+        help="Override CatBoost iterations (defaults to config.epochs).",
+    )
+    parser.add_argument(
+        "--catboost-depth",
+        type=int,
+        default=None,
+        help="Override CatBoost tree depth (defaults to config value).",
+    )
+    parser.add_argument(
+        "--catboost-learning-rate",
+        type=float,
+        default=None,
+        help="Override CatBoost learning rate (defaults to config.lr).",
+    )
     args = parser.parse_args()
     run_pipeline(
         visualize=args.visualize,
         output_path=args.output_path,
         risk_output_prefix=args.risk_output_prefix,
+        catboost_iterations=args.catboost_iterations,
+        catboost_depth=args.catboost_depth,
+        catboost_learning_rate=args.catboost_learning_rate,
     )

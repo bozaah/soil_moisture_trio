@@ -2,32 +2,18 @@ import os
 from typing import Any, Dict, Optional
 
 import numpy as np
-import torch
-import torch.nn as nn
-import torch.optim as optim
 import xarray as xr
 import rioxarray as rio
-from torch.utils.data import DataLoader
+from catboost import CatBoostClassifier, Pool
 
 from src.soil_moisture_trio.config import ClassifierConfig
-from src.soil_moisture_trio.model import SoilData, DryWetClassifier
 from src.soil_moisture_trio.risk import assess_risk_levels
 
 # Main Pipeline Class
 class DryWetClassifierPipeline:
     def __init__(self, config: Optional[ClassifierConfig] = None):
         self.config = config or ClassifierConfig()
-        self.model: Optional[DryWetClassifier] = None
-        self.criterion = nn.BCELoss()
-        self.optimizer: Optional[optim.Optimizer] = None
-        
-        # Determine device
-        if torch.backends.mps.is_available():
-            self.device = torch.device("mps")
-        else:
-            self.device = torch.device("cpu")
-        print(f"Using device: {self.device}")
-        
+        self.model: Optional[CatBoostClassifier] = None
         print(f"Pipeline initialized with config: {self.config.model_dump()}")
     
     def _load_real_netcdf(self, file_path: str, var_name: str) -> np.ndarray:
@@ -159,48 +145,40 @@ class DryWetClassifierPipeline:
         print(f"Data prepared. Labels: {np.bincount(y.astype(int))} (dry, wet)")
     
     def build_model(self) -> None:
-        """Initialize model & optimizer."""
-        self.model = DryWetClassifier(input_size=4) # Updated input size
-        self.model.to(self.device)
-        self.optimizer = optim.Adam(self.model.parameters(), lr=self.config.lr)
+        """Initialize CatBoost model."""
+        self.model = CatBoostClassifier(
+            iterations=self.config.catboost_iterations or self.config.epochs,
+            depth=self.config.catboost_depth,
+            learning_rate=self.config.catboost_learning_rate or self.config.lr,
+            loss_function="Logloss",
+            eval_metric="Logloss",
+            verbose=False,
+        )
     
     def train(self) -> None:
-        """Train the model."""
+        """Train the CatBoost classifier."""
         if not self.model:
             self.build_model()
         
-        train_ds = SoilData(self.X_train, self.y_train)
-        train_loader = DataLoader(train_ds, batch_size=self.config.batch_size, shuffle=True)
-        
-        self.model.train()
-        for epoch in range(self.config.epochs):
-            for X_batch, y_batch in train_loader:
-                X_batch = X_batch.to(self.device)
-                y_batch = y_batch.to(self.device)
-                self.optimizer.zero_grad()
-                out = self.model(X_batch)
-                loss = self.criterion(out, y_batch)
-                loss.backward()
-                self.optimizer.step()
-            if (epoch + 1) % 10 == 0:
-                print(f"Epoch {epoch+1}/{self.config.epochs}, Loss: {loss.item():.4f}")
+        train_pool = Pool(self.X_train, label=self.y_train)
+        eval_pool = Pool(self.X_test, label=self.y_test)
+        self.model.fit(train_pool, eval_set=eval_pool, verbose=False)
     
     def evaluate(self) -> Dict[str, float]:
         """Evaluate on test set."""
         if not self.model:
             raise ValueError("Train first!")
         
-        test_ds = SoilData(self.X_test, self.y_test)
-        test_loader = DataLoader(test_ds, batch_size=self.config.batch_size, shuffle=False)
+        test_probs = self.model.predict_proba(self.X_test)[:, 1]
+        epsilon = 1e-9
+        test_loss = -np.mean(
+            self.y_test * np.log(test_probs + epsilon) +
+            (1 - self.y_test) * np.log(1 - test_probs + epsilon)
+        )
+        accuracy = np.mean((test_probs > 0.5) == self.y_test)
         
-        self.model.eval()
-        with torch.no_grad():
-            test_pred = self.model(torch.tensor(self.X_test, dtype=torch.float32).to(self.device))
-            test_loss = self.criterion(test_pred, torch.tensor(self.y_test, dtype=torch.float32).unsqueeze(1).to(self.device))
-            accuracy = ((test_pred > 0.5).float() == torch.tensor(self.y_test, dtype=torch.float32).unsqueeze(1).to(self.device)).float().mean()
-        
-        print(f"Test Loss: {test_loss.item():.4f}, Accuracy: {accuracy.item():.4f}")
-        return {'loss': test_loss.item(), 'accuracy': accuracy.item()}
+        print(f"Test Loss: {test_loss:.4f}, Accuracy: {accuracy:.4f}")
+        return {'loss': float(test_loss), 'accuracy': float(accuracy)}
     
     def predict_grid(self) -> np.ndarray:
         """Classify full grid."""
@@ -214,11 +192,10 @@ class DryWetClassifierPipeline:
             self.data_grids['vpd'].flatten()
         ])
         
-        with torch.no_grad():
-            pred_probs = self.model(torch.tensor(X_grid, dtype=torch.float32).to(self.device)).cpu().numpy().reshape(
-                self.data_grids['soil_moisture'].shape
-            )
-            pred_class = (pred_probs > 0.5).astype(int)
+        pred_probs = self.model.predict_proba(X_grid)[:, 1].reshape(
+            self.data_grids['soil_moisture'].shape
+        )
+        pred_class = (pred_probs > 0.5).astype(int)
         
         dry_count = np.sum(pred_class == 0)
         wet_count = np.sum(pred_class == 1)

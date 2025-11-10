@@ -17,6 +17,10 @@ This document outlines the development plan for the `soil-moisture-trio` project
     - [x] Restructure the project by splitting `main.py` into smaller, more focused modules (`config.py`, `model.py`, `pipeline.py`).
     - [x] Update `main.py` to be a simple script for orchestrating the pipeline.
     - [x] Update tests to use the new module structure.
+- [x] **Optimize Model Training:**
+    - [x] Replace the PyTorch MLP with CatBoost for faster tabular training/inference.
+    - [x] Expose CatBoost hyperparameters through `ClassifierConfig`.
+    - [x] Update dependencies (`pyproject.toml` / `requirements.txt`) accordingly.
 
 ## Phase 2: Data & Visualization (External-Facing)
 
