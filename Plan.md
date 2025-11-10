@@ -49,5 +49,6 @@ This document outlines the development plan for the `soil-moisture-trio` project
     - [ ] Explore incorporating recent trends (multi-year anomalies) or ancillary datasets to contextualize risk.
 - [ ] **Output Formats:**
     - [x] Provide NetCDF + JSON exports of the risk layer via `--risk-output-prefix` to unblock downstream viz/scripting.
+    - [x] Add `--risk-plot-path` CLI flag to emit a publication-ready PNG of the risk layer.
     - [ ] Decide on additional delivery mechanisms (GeoJSON, NetCDF layers, simple reports) that downstream tools can consume.
     - [ ] Update README once the risk layer workflow stabilizes.

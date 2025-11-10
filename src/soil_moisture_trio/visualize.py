@@ -3,15 +3,7 @@ from typing import Dict, Optional
 import folium
 import numpy as np
 
-from src.soil_moisture_trio.risk import RISK_LABELS, RiskLevel
-
-
-RISK_COLORS = {
-    RiskLevel.LOW: "#2b83ba",
-    RiskLevel.WATCH: "#abdda4",
-    RiskLevel.ELEVATED: "#fdae61",
-    RiskLevel.CRITICAL: "#d7191c",
-}
+from src.soil_moisture_trio.risk import RISK_COLORS, RISK_LABELS, RiskLevel
 
 
 def _add_summary_panel(map_obj: folium.Map, summary: Dict[str, Dict[str, float]]) -> None:

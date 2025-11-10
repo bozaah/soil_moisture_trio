@@ -18,9 +18,16 @@ class RiskLevel(IntEnum):
 
 RISK_LABELS = {
     RiskLevel.LOW: "Wet / Low Risk",
-    RiskLevel.WATCH: "Watch (conditions approaching dry thresholds)",
+    RiskLevel.WATCH: "Watch (approaching dry thresholds)",
     RiskLevel.ELEVATED: "Elevated Dry Risk",
     RiskLevel.CRITICAL: "Critical Dry Risk",
+}
+
+RISK_COLORS = {
+    RiskLevel.LOW: "#2b83ba",
+    RiskLevel.WATCH: "#abdda4",
+    RiskLevel.ELEVATED: "#fdae61",
+    RiskLevel.CRITICAL: "#d7191c",
 }
 
 
@@ -140,4 +147,4 @@ def save_risk_outputs(
     return {"netcdf": nc_path, "summary": summary_path}
 
 
-__all__ = ["RiskLevel", "RISK_LABELS", "assess_risk_levels", "save_risk_outputs"]
+__all__ = ["RiskLevel", "RISK_LABELS", "RISK_COLORS", "assess_risk_levels", "save_risk_outputs"]

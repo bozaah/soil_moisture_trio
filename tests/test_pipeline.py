@@ -7,6 +7,7 @@ import xarray as xr
 
 from src.soil_moisture_trio.config import ClassifierConfig
 from src.soil_moisture_trio.pipeline import DryWetClassifierPipeline
+from src.soil_moisture_trio.plot import save_risk_plot
 from src.soil_moisture_trio.risk import RiskLevel, assess_risk_levels, save_risk_outputs
 
 
@@ -163,3 +164,15 @@ def test_save_risk_outputs_writes_files(tmp_path):
     with files['summary'].open() as fp:
         saved_summary = json.load(fp)
     assert saved_summary == summary
+
+
+def test_save_risk_plot_creates_png(tmp_path):
+    risk_map = np.array([[RiskLevel.LOW, RiskLevel.CRITICAL], [RiskLevel.WATCH, RiskLevel.ELEVATED]], dtype=np.int8)
+    lats = np.array([0.0, 1.0])
+    lons = np.array([10.0, 11.0])
+    output = tmp_path / "plots" / "risk.png"
+
+    path = save_risk_plot(risk_map, lats, lons, output)
+    assert path.exists()
+    assert path.suffix == ".png"
+    assert path.stat().st_size > 0

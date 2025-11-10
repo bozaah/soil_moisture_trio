@@ -12,6 +12,7 @@ def run_pipeline(
     catboost_iterations: int | None = None,
     catboost_depth: int | None = None,
     catboost_learning_rate: float | None = None,
+    risk_plot_path: str | None = None,
 ) -> None:
     """Execute the end-to-end training/eval flow with optional visualization."""
     # Init & prep
@@ -49,6 +50,17 @@ def run_pipeline(
             base_path=risk_output_prefix,
         )
         print(f"Risk layer saved to {files['netcdf']} and summary to {files['summary']}")
+
+    if risk_plot_path:
+        from src.soil_moisture_trio.plot import save_risk_plot
+
+        plot_path = save_risk_plot(
+            risk_map=risk_map,
+            lats=pipeline.data_grids['lats'],
+            lons=pipeline.data_grids['lons'],
+            output_path=risk_plot_path,
+        )
+        print(f"Risk PNG exported to {plot_path}")
 
     if visualize:
         from src.soil_moisture_trio.visualize import create_interactive_map
@@ -95,6 +107,11 @@ if __name__ == "__main__":
         default=None,
         help="Override CatBoost learning rate (defaults to config.lr).",
     )
+    parser.add_argument(
+        "--risk-plot-path",
+        default=None,
+        help="If provided, saves a PNG rendering of the risk layer to this path.",
+    )
     args = parser.parse_args()
     run_pipeline(
         visualize=args.visualize,
@@ -103,4 +120,5 @@ if __name__ == "__main__":
         catboost_iterations=args.catboost_iterations,
         catboost_depth=args.catboost_depth,
         catboost_learning_rate=args.catboost_learning_rate,
+        risk_plot_path=args.risk_plot_path,
     )
