@@ -13,10 +13,13 @@ def run_pipeline(
     catboost_depth: int | None = None,
     catboost_learning_rate: float | None = None,
     risk_plot_path: str | None = None,
+    year: int | None = None,
 ) -> None:
     """Execute the end-to-end training/eval flow with optional visualization."""
     # Init & prep
     config_kwargs = {"moisture_threshold": 0.2}
+    if year is not None:
+        config_kwargs["year"] = year
     if catboost_iterations is not None:
         config_kwargs["catboost_iterations"] = catboost_iterations
     if catboost_depth is not None:
@@ -121,4 +124,11 @@ if __name__ == "__main__":
         catboost_depth=args.catboost_depth,
         catboost_learning_rate=args.catboost_learning_rate,
         risk_plot_path=args.risk_plot_path,
+        year=args.year,
+    )
+    parser.add_argument(
+        "--year",
+        type=int,
+        default=None,
+        help="Override the data year (defaults to config value, currently 2024).",
     )
