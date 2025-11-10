@@ -32,3 +32,16 @@ This document outlines the development plan for the `soil-moisture-trio` project
     - [x] Create a new script to generate an interactive HTML map using `folium`.
     - [x] Display the dry/wet classification as a grid overlay.
     - [x] Add a feature where clicking on a grid cell displays a popup with the input values.
+    - [x] Make visualization optional via a CLI flag (`main.py --visualize`) so the core pipeline stays lean.
+
+## Phase 3: Decision Support & Risk Layer
+
+- [ ] **Define Risk Rubric:**
+    - [ ] Translate per-cell dry/wet probabilities plus thresholds into categorical risk levels suitable for management decisions.
+    - [ ] Document how current moisture/temperature/VPD thresholds influence each risk band.
+- [ ] **Aggregate Insights:**
+    - [ ] Prototype scripts/notebooks to aggregate grid predictions into regional summaries (e.g., percentage dry, hotspot detection).
+    - [ ] Explore incorporating recent trends (multi-year anomalies) or ancillary datasets to contextualize risk.
+- [ ] **Output Formats:**
+    - [ ] Decide on delivery mechanisms (GeoJSON, NetCDF layers, simple reports) that downstream tools can consume.
+    - [ ] Update README once the risk layer workflow stabilizes.
