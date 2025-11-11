@@ -12,6 +12,6 @@ dependencies = [
     "pydantic>=2.5.0",
     "rioxarray>=0.15.0",
     "shapely>=2.0.0",
-    "weather-tools>=0.0.0",
+    "weather-tools @ git+https://github.com/harryeslick/weather_tools.git@1089eaa015e59cbd496e11498a26c862e98e1bf9",
     "xarray>=2024.1.0",
 ]

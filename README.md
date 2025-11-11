@@ -11,11 +11,12 @@ This project trains a CatBoost classifier to label Australian grid cells as **dr
   - `--silo-cache-dir` and `--silo-cache-max-mb` enable a thin on-disk cache; omit the dir to keep using the temp-space cache managed by `weather_tools`.
   - `--silo-overview-level` and `--silo-buffer-deg` tune the COG subsetting resolution and spatial buffer.
   - `--no-silo-cog-loader` reverts to the older NetCDF-based loader if needed.
+  - `--min-lat/--max-lat/--min-lon/--max-lon` let you focus on any bounding box (e.g., Western Australia) without editing code.
 
 Example run that keeps everything in temp storage but requests rainfall as an extra feature:
 
 ```bash
-uv run python main.py \
+.venv/bin/python main.py \
   --silo-variable max_temp \
   --silo-variable vp_deficit \
   --silo-variable daily_rain \

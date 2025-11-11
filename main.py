@@ -22,6 +22,10 @@ def run_pipeline(
     use_silo_cog_loader: bool | None = None,
     silo_overview_level: int | None = None,
     silo_buffer_deg: float | None = None,
+    min_lat: float | None = None,
+    max_lat: float | None = None,
+    min_lon: float | None = None,
+    max_lon: float | None = None,
 ) -> None:
     """Execute the end-to-end training/eval flow with optional visualization."""
     # Init & prep
@@ -50,6 +54,14 @@ def run_pipeline(
         config_kwargs["silo_overview_level"] = silo_overview_level
     if silo_buffer_deg is not None:
         config_kwargs["silo_buffer_degrees"] = silo_buffer_deg
+    if min_lat is not None:
+        config_kwargs["min_lat"] = min_lat
+    if max_lat is not None:
+        config_kwargs["max_lat"] = max_lat
+    if min_lon is not None:
+        config_kwargs["min_lon"] = min_lon
+    if max_lon is not None:
+        config_kwargs["max_lon"] = max_lon
     config = ClassifierConfig(**config_kwargs)
     pipeline = DryWetClassifierPipeline(config)
     pipeline.prepare_data()
@@ -207,6 +219,30 @@ if __name__ == "__main__":
         action="store_false",
         help="Disable the weather_tools COG loader and fall back to NetCDF.",
     )
+    parser.add_argument(
+        "--min-lat",
+        type=float,
+        default=None,
+        help="Minimum latitude for clipping (degrees).",
+    )
+    parser.add_argument(
+        "--max-lat",
+        type=float,
+        default=None,
+        help="Maximum latitude for clipping (degrees).",
+    )
+    parser.add_argument(
+        "--min-lon",
+        type=float,
+        default=None,
+        help="Minimum longitude for clipping (degrees).",
+    )
+    parser.add_argument(
+        "--max-lon",
+        type=float,
+        default=None,
+        help="Maximum longitude for clipping (degrees).",
+    )
     parser.set_defaults(use_silo_cog_loader=None)
     args = parser.parse_args()
     run_pipeline(
@@ -226,4 +262,8 @@ if __name__ == "__main__":
         use_silo_cog_loader=args.use_silo_cog_loader,
         silo_overview_level=args.silo_overview_level,
         silo_buffer_deg=args.silo_buffer_deg,
+        min_lat=args.min_lat,
+        max_lat=args.max_lat,
+        min_lon=args.min_lon,
+        max_lon=args.max_lon,
     )
