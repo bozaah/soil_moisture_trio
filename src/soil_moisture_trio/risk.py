@@ -12,20 +12,23 @@ from src.soil_moisture_trio.config import ClassifierConfig
 class RiskLevel(IntEnum):
     LOW = 0
     WATCH = 1
-    ELEVATED = 2
-    CRITICAL = 3
+    ALERT = 2
+    ELEVATED = 3
+    CRITICAL = 4
 
 
 RISK_LABELS = {
     RiskLevel.LOW: "Wet / Low Risk",
     RiskLevel.WATCH: "Watch (approaching dry thresholds)",
+    RiskLevel.ALERT: "Alert (dry onset / heat stress)",
     RiskLevel.ELEVATED: "Elevated Dry Risk",
     RiskLevel.CRITICAL: "Critical Dry Risk",
 }
 
 RISK_COLORS = {
     RiskLevel.LOW: "#2b83ba",
-    RiskLevel.WATCH: "#abdda4",
+    RiskLevel.WATCH: "#c7e9b4",
+    RiskLevel.ALERT: "#fee08b",
     RiskLevel.ELEVATED: "#fdae61",
     RiskLevel.CRITICAL: "#d7191c",
 }
@@ -61,7 +64,16 @@ def _compute_risk_map(
         (soil_moisture <= config.severe_moisture_threshold) &
         ((temperature >= config.critical_temp_threshold) | (vpd >= config.critical_vpd_threshold))
     )
-    elevated_mask = dry_mask & ~critical_mask
+    alert_mask = (
+        dry_mask
+        & ~critical_mask
+        & (
+            (soil_moisture <= config.alert_moisture_threshold)
+            | (temperature >= config.alert_temp_threshold)
+            | (vpd >= config.alert_vpd_threshold)
+        )
+    )
+    elevated_mask = dry_mask & ~critical_mask & ~alert_mask
     watch_mask = (
         (~dry_mask) & valid_mask &
         (
@@ -72,6 +84,7 @@ def _compute_risk_map(
     )
 
     risk_map[watch_mask] = RiskLevel.WATCH
+    risk_map[alert_mask] = RiskLevel.ALERT
     risk_map[elevated_mask] = RiskLevel.ELEVATED
     risk_map[critical_mask] = RiskLevel.CRITICAL
 

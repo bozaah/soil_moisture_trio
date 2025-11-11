@@ -106,6 +106,7 @@ def run_pipeline(
             lats=pipeline.data_grids['lats'],
             lons=pipeline.data_grids['lons'],
             output_path=risk_plot_path,
+            time_metadata=pipeline.time_metadata,
         )
         print(f"Risk PNG exported to {plot_path}")
 

@@ -22,6 +22,22 @@ class ClassifierConfig(BaseModel):
     watch_margin: float = Field(
         0.05, ge=0, description="Moisture margin above dryness threshold for watch state"
     )
+    alert_moisture_threshold: float = Field(
+        0.22,
+        ge=0,
+        le=1,
+        description="Moisture threshold for the ALERT risk level (between watch and elevated).",
+    )
+    alert_temp_threshold: float = Field(
+        32.0,
+        ge=0,
+        description="Temperature threshold that can trigger ALERT when soil moisture is marginal.",
+    )
+    alert_vpd_threshold: float = Field(
+        24.0,
+        ge=0,
+        description="VPD threshold that can trigger ALERT when soil moisture is marginal.",
+    )
     lr: float = Field(0.01, ge=0)
     epochs: int = Field(30, ge=1)
     batch_size: int = Field(32, ge=1)

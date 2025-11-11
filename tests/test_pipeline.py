@@ -115,6 +115,9 @@ def test_assess_risk_levels_categorizes_cells():
         severe_moisture_threshold=0.15,
         temp_threshold=30.0,
         vpd_threshold=20.0,
+        alert_moisture_threshold=0.2,
+        alert_temp_threshold=33.0,
+        alert_vpd_threshold=22.0,
         critical_temp_threshold=35.0,
         critical_vpd_threshold=30.0,
         watch_margin=0.02,
@@ -122,7 +125,7 @@ def test_assess_risk_levels_categorizes_cells():
         batch_size=4,
     )
     soil = np.array([[0.10, 0.22], [0.31, 0.26]])
-    temp = np.array([[36.0, 32.0], [28.0, 29.0]])
+    temp = np.array([[36.0, 34.0], [28.0, 29.0]])
     vpd = np.array([[35.0, 15.0], [10.0, 25.0]])
     classification = np.array([[0, 0], [1, 1]])
 
@@ -133,11 +136,11 @@ def test_assess_risk_levels_categorizes_cells():
     )
 
     assert risk_map[0, 0] == RiskLevel.CRITICAL
-    assert risk_map[0, 1] == RiskLevel.ELEVATED
+    assert risk_map[0, 1] == RiskLevel.ALERT
     assert risk_map[1, 0] == RiskLevel.LOW
     assert risk_map[1, 1] == RiskLevel.WATCH
     assert summary['critical']['count'] == 1
-    assert summary['elevated']['count'] == 1
+    assert summary['alert']['count'] == 1
     assert summary['watch']['count'] == 1
     assert summary['low']['count'] == 1
     assert summary['total_cells']['count'] == 4
@@ -177,16 +180,17 @@ def test_pipeline_assess_risk_returns_summary(monkeypatch):
 
 
 def test_save_risk_outputs_writes_files(tmp_path):
-    risk_map = np.array([[RiskLevel.LOW, -1], [RiskLevel.ELEVATED, RiskLevel.CRITICAL]], dtype=np.int8)
+    risk_map = np.array([[RiskLevel.LOW, -1], [RiskLevel.ALERT, RiskLevel.CRITICAL]], dtype=np.int8)
     lats = np.array([0.0, 1.0])
     lons = np.array([10.0, 11.0])
     summary = {
-        'low': {'count': 1, 'percentage': 0.5, 'label': 'Wet / Low Risk'},
+        'low': {'count': 1, 'percentage': 1 / 3, 'label': 'Wet / Low Risk'},
         'watch': {'count': 0, 'percentage': 0.0, 'label': 'Watch (approaching dry thresholds)'},
-        'elevated': {'count': 1, 'percentage': 0.5, 'label': 'Elevated Dry Risk'},
-        'critical': {'count': 1, 'percentage': 0.5, 'label': 'Critical Dry Risk'},
+        'alert': {'count': 1, 'percentage': 1 / 3, 'label': 'Alert (dry onset / heat stress)'},
+        'elevated': {'count': 0, 'percentage': 0.0, 'label': 'Elevated Dry Risk'},
+        'critical': {'count': 1, 'percentage': 1 / 3, 'label': 'Critical Dry Risk'},
         'invalid': {'count': 1, 'percentage': 0.25, 'label': 'No Data'},
-        'valid_cells': {'count': 2, 'percentage': 0.5, 'label': 'Valid grid cells'},
+        'valid_cells': {'count': 3, 'percentage': 0.75, 'label': 'Valid grid cells'},
         'total_cells': {'count': 4, 'percentage': 1.0, 'label': 'Total grid cells'},
     }
     time_meta = {'time_start': '2025-01-01T00:00:00', 'time_end': '2025-01-07T00:00:00'}
