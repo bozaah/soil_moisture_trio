@@ -53,6 +53,19 @@ def _mock_real_data(with_nan: bool = False) -> dict:
     }
 
 
+def test_map_silo_variables_aliases_known_keys():
+    pipeline = DryWetClassifierPipeline(ClassifierConfig())
+    arrays = {
+        'max_temp': np.full((2, 2), 1.0, dtype=np.float32),
+        'vp_deficit': np.full((2, 2), 2.0, dtype=np.float32),
+    }
+    mapped = pipeline._map_silo_variables(arrays)
+    assert 'temperature' in mapped
+    assert 'vpd' in mapped
+    np.testing.assert_allclose(mapped['temperature'], arrays['max_temp'])
+    np.testing.assert_allclose(mapped['vpd'], arrays['vp_deficit'])
+
+
 def test_pipeline_real_data_flow(monkeypatch):
     """End-to-end sanity check using mocked real data."""
     config = ClassifierConfig(epochs=2, batch_size=8, lr=0.01)

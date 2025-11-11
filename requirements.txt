@@ -63,6 +63,7 @@ numpy==2.3.4
     #   rasterio
     #   rioxarray
     #   scipy
+    #   shapely
     #   xarray
 packaging==25.0
     # via
@@ -102,6 +103,8 @@ rioxarray==0.20.0
     # via soil-moisture-trio (pyproject.toml)
 scipy==1.16.3
     # via catboost
+shapely==2.1.2
+    # via soil-moisture-trio (pyproject.toml)
 six==1.17.0
     # via
     #   catboost
@@ -117,6 +120,8 @@ tzdata==2025.2
     # via pandas
 urllib3==2.5.0
     # via requests
+weather-tools==0.0.1
+    # via soil-moisture-trio (pyproject.toml)
 xarray==2025.10.1
     # via
     #   soil-moisture-trio (pyproject.toml)

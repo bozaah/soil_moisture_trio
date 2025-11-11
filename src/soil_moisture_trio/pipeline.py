@@ -1,4 +1,5 @@
 import os
+from datetime import date
 from typing import Any, Dict, Optional
 
 import numpy as np
@@ -8,6 +9,7 @@ from catboost import CatBoostClassifier, Pool
 import xarray as xr
 
 from src.soil_moisture_trio.config import ClassifierConfig
+from src.soil_moisture_trio.data_sources import WeatherToolsSiloLoader, WeatherToolsResult
 from src.soil_moisture_trio.risk import assess_risk_levels
 
 # Main Pipeline Class
@@ -18,7 +20,18 @@ class DryWetClassifierPipeline:
         self.valid_mask_grid: Optional[np.ndarray] = None
         self.valid_mask_flat: Optional[np.ndarray] = None
         self.time_metadata: Optional[Dict[str, str]] = None
+        self._silo_loader: Optional[WeatherToolsSiloLoader] = None
         print(f"Pipeline initialized with config: {self.config.model_dump()}")
+
+    def _get_silo_loader(self) -> WeatherToolsSiloLoader:
+        if self._silo_loader is None:
+            self._silo_loader = WeatherToolsSiloLoader(
+                cache_dir=self.config.silo_cache_dir,
+                cache_max_size_mb=self.config.silo_cache_max_size_mb,
+                overview_level=self.config.silo_overview_level,
+                buffer_degrees=self.config.silo_buffer_degrees,
+            )
+        return self._silo_loader
     
     def _align_lat_lon(
         self,
@@ -127,7 +140,7 @@ class DryWetClassifierPipeline:
         return data, time_meta
 
     def _load_all_real_data(self) -> Dict[str, np.ndarray]:
-        """Load all required variables from their respective NetCDF sources."""
+        """Load required grids via either NetCDF or the weather_tools SILO loader."""
         data_sources = {
             'soil_moisture': {
                 'url': f'https://thredds.nci.org.au/thredds/dodsC/iu04/australian-water-outlook/historical/v1/AWRALv7/processed/values/day/sm_{self.config.year}.nc',
@@ -143,65 +156,167 @@ class DryWetClassifierPipeline:
             }
         }
 
-        # For now, we only load soil moisture. We'll add the others later.
         soil_moisture_data, soil_meta = self._load_real_netcdf(
             data_sources['soil_moisture']['url'],
             data_sources['soil_moisture']['var_name']
         )
 
-        temperature_data, temp_meta = self._load_real_netcdf(
-            data_sources['temperature']['url'],
-            data_sources['temperature']['var_name']
-        )
-
-        vpd_data, vpd_meta = self._load_real_netcdf(
-            data_sources['vpd']['url'],
-            data_sources['vpd']['var_name']
-        )
-
-        # We need to get lats and lons as well. We can get them from the soil moisture dataset.
         with xr.open_dataset(data_sources['soil_moisture']['url']) as ds:
             lats = ds['latitude'].values
             lons = ds['longitude'].values
 
-        aligned_data, clipped_lats, clipped_lons = self._align_lat_lon(
-            {
-                'soil_moisture': soil_moisture_data,
-                'temperature': temperature_data,
-                'vpd': vpd_data,
-            },
-            lats,
-            lons,
-        )
+        time_metas = [soil_meta]
+        data: Dict[str, np.ndarray] = {}
+        clipped_lats: np.ndarray
+        clipped_lons: np.ndarray
 
-        metas = [m for m in (soil_meta, temp_meta, vpd_meta) if m]
-        if metas:
-            start_times = [m['time_start'] for m in metas if 'time_start' in m]
-            end_times = [m['time_end'] for m in metas if 'time_end' in m]
-            if start_times and end_times:
-                self.time_metadata = {
-                    'time_start': min(start_times),
-                    'time_end': max(end_times),
-                }
+        if self.config.use_silo_cog_loader:
+            aligned_soil, clipped_lats, clipped_lons = self._align_lat_lon(
+                {'soil_moisture': soil_moisture_data},
+                lats,
+                lons,
+            )
+            data.update(aligned_soil)
+            try:
+                silo_result = self._load_silo_via_weather_tools(clipped_lats, clipped_lons)
+                data.update(self._map_silo_variables(silo_result.data))
+                time_metas.append(silo_result.time_metadata)
+            except Exception as exc:
+                print(f"weather_tools COG loader failed ({exc}). Falling back to SILO NetCDF files.")
+                data, clipped_lats, clipped_lons, fallback_metas = self._load_silo_via_netcdf_and_align(
+                    soil_moisture_data,
+                    lats,
+                    lons,
+                    data_sources,
+                )
+                time_metas.extend(fallback_metas)
         else:
-            self.time_metadata = None
+            data, clipped_lats, clipped_lons, fallback_metas = self._load_silo_via_netcdf_and_align(
+                soil_moisture_data,
+                lats,
+                lons,
+                data_sources,
+            )
+            time_metas.extend(fallback_metas)
 
-        grid_shape = aligned_data['soil_moisture'].shape
+        self.time_metadata = self._combine_time_metadata(time_metas)
+
+        if data.get('temperature') is None or data.get('vpd') is None:
+            raise ValueError(
+                "SILO data did not provide both temperature and VPD grids. "
+                "Ensure 'max_temp' and 'vp_deficit' are included in silo_variables."
+            )
+
+        grid_shape = data['soil_moisture'].shape
         ndvi = np.random.uniform(-0.1, 1.0, grid_shape)
         ndwi = np.random.uniform(-0.5, 0.5, grid_shape)
         fire_index = np.random.uniform(0, 10, grid_shape)
 
         return {
-            'soil_moisture': aligned_data['soil_moisture'],
-            'temperature': aligned_data['temperature'],
+            'soil_moisture': data['soil_moisture'],
+            'temperature': data.get('temperature'),
             'ndvi': ndvi,
             'ndwi': ndwi,
             'fire_index': fire_index,
-            'vpd': aligned_data['vpd'],
+            'vpd': data.get('vpd'),
+            **{k: v for k, v in data.items() if k not in {'soil_moisture', 'temperature', 'vpd'}},
             'lats': clipped_lats,
             'lons': clipped_lons,
             'time_metadata': self.time_metadata,
         }
+
+    def _load_silo_via_weather_tools(
+        self,
+        target_lats: np.ndarray,
+        target_lons: np.ndarray,
+    ) -> WeatherToolsResult:
+        start_date, end_date = self._resolve_silo_date_range()
+        loader = self._get_silo_loader()
+        bounds = (
+            self.config.min_lat,
+            self.config.max_lat,
+            self.config.min_lon,
+            self.config.max_lon,
+        )
+        return loader.load(
+            variables=self.config.silo_variables,
+            start_date=start_date,
+            end_date=end_date,
+            bounds=bounds,
+            target_lats=target_lats,
+            target_lons=target_lons,
+        )
+
+    def _load_silo_via_netcdf_and_align(
+        self,
+        soil_moisture: np.ndarray,
+        lats: np.ndarray,
+        lons: np.ndarray,
+        data_sources: Dict[str, Dict[str, str]],
+    ) -> tuple[Dict[str, np.ndarray], np.ndarray, np.ndarray, list[Dict[str, str]]]:
+        silo_data, silo_metas = self._load_silo_via_netcdf(data_sources)
+        merged = {'soil_moisture': soil_moisture, **silo_data}
+        aligned, clipped_lats, clipped_lons = self._align_lat_lon(merged, lats, lons)
+        return aligned, clipped_lats, clipped_lons, silo_metas
+
+    def _load_silo_via_netcdf(
+        self,
+        data_sources: Dict[str, Dict[str, str]],
+    ) -> tuple[Dict[str, np.ndarray], list[Dict[str, str]]]:
+        temperature_data, temp_meta = self._load_real_netcdf(
+            data_sources['temperature']['url'],
+            data_sources['temperature']['var_name'],
+        )
+        vpd_data, vpd_meta = self._load_real_netcdf(
+            data_sources['vpd']['url'],
+            data_sources['vpd']['var_name'],
+        )
+        metas = [m for m in (temp_meta, vpd_meta) if m]
+        return {'temperature': temperature_data, 'vpd': vpd_data}, metas
+
+    def _map_silo_variables(self, silo_data: Dict[str, np.ndarray]) -> Dict[str, np.ndarray]:
+        mapped: Dict[str, np.ndarray] = {}
+        for variable, array in silo_data.items():
+            canonical = self._canonical_silo_key(variable)
+            mapped[canonical] = array
+            if canonical != variable:
+                mapped[variable] = array
+        return mapped
+
+    @staticmethod
+    def _canonical_silo_key(variable: str) -> str:
+        mapping = {
+            'max_temp': 'temperature',
+            'vp_deficit': 'vpd',
+            'vp': 'vpd',
+        }
+        return mapping.get(variable, variable)
+
+    def _resolve_silo_date_range(self) -> tuple[date, date]:
+        start = self.config.start_date or date(self.config.year, 1, 1)
+        if self.config.end_date:
+            end = self.config.end_date
+        elif self.config.start_date:
+            end = self.config.start_date
+        else:
+            end = date(self.config.year, 12, 31)
+        if end < start:
+            end = start
+        return start, end
+
+    @staticmethod
+    def _combine_time_metadata(metas: list[Dict[str, str]]) -> Optional[Dict[str, str]]:
+        valid = [m for m in metas if m]
+        if not valid:
+            return None
+        start_times = [m.get('time_start') for m in valid if m.get('time_start')]
+        end_times = [m.get('time_end') for m in valid if m.get('time_end')]
+        if start_times and end_times:
+            return {
+                'time_start': min(start_times),
+                'time_end': max(end_times),
+            }
+        return valid[0]
 
     def prepare_data(self) -> None:
         """Prep X/y from the configured real-world data sources."""

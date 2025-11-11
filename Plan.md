@@ -28,6 +28,7 @@ This document outlines the development plan for the `soil-moisture-trio` project
     - [x] **Soil Moisture:** Integrate BoM Australian Water Outlook (AWO) data (NetCDF).
     - [x] **Temperature:** Integrate SILO `tmax` data from AWS Public Data (NetCDF).
     - [x] **VPD:** Integrate SILO `vpd` data from AWS Public Data (NetCDF).
+    - [x] **SILO COG Loader:** Switch the temperature/VPD ingestion to the `weather_tools` GeoTIFF pipeline (with a CLI/config flag to fall back to the legacy NetCDF path) so we can subset the requested Australian bounds and keep caching lightweight.
     - [ ] **NDVI:** Integrate CSIRO MODIS-derived data (COG). (Currently using synthetic data; direct access to COG proving difficult.)
     - [ ] **NDWI:** Removed at this stage.
     - [ ] **Fire Index:** Removed at this stage.

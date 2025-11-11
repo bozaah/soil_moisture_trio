@@ -1,5 +1,6 @@
 from datetime import date
-from typing import Optional
+from pathlib import Path
+from typing import List, Optional
 
 from pydantic import BaseModel, Field
 
@@ -42,3 +43,31 @@ class ClassifierConfig(BaseModel):
     max_lat: float = Field(-8.0, description="Maximum latitude for clipping (degrees)")
     min_lon: float = Field(110.0, description="Minimum longitude for clipping (degrees)")
     max_lon: float = Field(155.0, description="Maximum longitude for clipping (degrees)")
+    silo_variables: List[str] = Field(
+        default_factory=lambda: ["max_temp", "vp_deficit"],
+        min_length=1,
+        description="List of SILO variables to request via weather_tools",
+    )
+    use_silo_cog_loader: bool = Field(
+        True,
+        description="If true, fetch SILO data via weather_tools COG loader instead of NetCDF.",
+    )
+    silo_cache_dir: Optional[Path] = Field(
+        None,
+        description="Optional directory for persisting SILO GeoTIFF downloads (default uses temp cache).",
+    )
+    silo_cache_max_size_mb: int = Field(
+        200,
+        ge=50,
+        description="Maximum size of the SILO cache directory before pruning (in MB).",
+    )
+    silo_overview_level: Optional[int] = Field(
+        None,
+        ge=0,
+        description="Optional overview level passed to weather_tools for lower-resolution reads.",
+    )
+    silo_buffer_degrees: float = Field(
+        0.0,
+        ge=0.0,
+        description="Extra degrees to buffer around the bounding box when requesting SILO COG subsets.",
+    )

@@ -16,6 +16,12 @@ def run_pipeline(
     year: int | None = None,
     start_date: str | None = None,
     end_date: str | None = None,
+    silo_variables: list[str] | None = None,
+    silo_cache_dir: str | None = None,
+    silo_cache_max_mb: int | None = None,
+    use_silo_cog_loader: bool | None = None,
+    silo_overview_level: int | None = None,
+    silo_buffer_deg: float | None = None,
 ) -> None:
     """Execute the end-to-end training/eval flow with optional visualization."""
     # Init & prep
@@ -32,6 +38,18 @@ def run_pipeline(
         config_kwargs["start_date"] = start_date
     if end_date is not None:
         config_kwargs["end_date"] = end_date
+    if silo_variables:
+        config_kwargs["silo_variables"] = silo_variables
+    if silo_cache_dir is not None:
+        config_kwargs["silo_cache_dir"] = silo_cache_dir
+    if silo_cache_max_mb is not None:
+        config_kwargs["silo_cache_max_size_mb"] = silo_cache_max_mb
+    if use_silo_cog_loader is not None:
+        config_kwargs["use_silo_cog_loader"] = use_silo_cog_loader
+    if silo_overview_level is not None:
+        config_kwargs["silo_overview_level"] = silo_overview_level
+    if silo_buffer_deg is not None:
+        config_kwargs["silo_buffer_degrees"] = silo_buffer_deg
     config = ClassifierConfig(**config_kwargs)
     pipeline = DryWetClassifierPipeline(config)
     pipeline.prepare_data()
@@ -147,6 +165,49 @@ if __name__ == "__main__":
         default=None,
         help="If provided, saves a PNG rendering of the risk layer to this path.",
     )
+    parser.add_argument(
+        "--silo-variable",
+        dest="silo_variables",
+        action="append",
+        default=None,
+        help="SILO variable or preset to request via weather_tools (repeat for multiple).",
+    )
+    parser.add_argument(
+        "--silo-cache-dir",
+        default=None,
+        help="Optional directory to persist SILO GeoTIFF downloads (default uses temp cache).",
+    )
+    parser.add_argument(
+        "--silo-cache-max-mb",
+        type=int,
+        default=None,
+        help="Maximum cache size in MB before pruning persisted SILO files.",
+    )
+    parser.add_argument(
+        "--silo-overview-level",
+        type=int,
+        default=None,
+        help="Optional overview level passed to weather_tools for lower-resolution reads.",
+    )
+    parser.add_argument(
+        "--silo-buffer-deg",
+        type=float,
+        default=None,
+        help="Extra degrees to buffer around the bounding box when requesting SILO COG subsets.",
+    )
+    parser.add_argument(
+        "--use-silo-cog-loader",
+        dest="use_silo_cog_loader",
+        action="store_true",
+        help="Force the weather_tools COG loader on (default).",
+    )
+    parser.add_argument(
+        "--no-silo-cog-loader",
+        dest="use_silo_cog_loader",
+        action="store_false",
+        help="Disable the weather_tools COG loader and fall back to NetCDF.",
+    )
+    parser.set_defaults(use_silo_cog_loader=None)
     args = parser.parse_args()
     run_pipeline(
         visualize=args.visualize,
@@ -159,4 +220,10 @@ if __name__ == "__main__":
         year=args.year,
         start_date=args.start_date,
         end_date=args.end_date,
+        silo_variables=args.silo_variables,
+        silo_cache_dir=args.silo_cache_dir,
+        silo_cache_max_mb=args.silo_cache_max_mb,
+        use_silo_cog_loader=args.use_silo_cog_loader,
+        silo_overview_level=args.silo_overview_level,
+        silo_buffer_deg=args.silo_buffer_deg,
     )
