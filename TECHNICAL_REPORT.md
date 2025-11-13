@@ -2,7 +2,7 @@
 
 Date: 2025-11-12
 
-This report summarizes the data sources, thresholds and heuristics, model design (CatBoost), and outputs produced by the Soil Moisture Trio pipeline. It is intended to be a concise, technical reference for reviewers and engineers integrating or validating the system.
+This report summarises the data sources, thresholds and heuristics, model design (CatBoost), and outputs produced by the Soil Moisture Trio pipeline. It is intended to be a concise, technical reference for reviewers and engineers integrating or validating the system.
 
 ---
 
@@ -31,7 +31,7 @@ Data-handling notes
 ## 2) Thresholds & heuristics
 
 Canonical internal units
-- The pipeline operates on soil moisture as volumetric fraction (0–1). To avoid silent unit errors, the loader performs a simple detection: if the loaded `sm_pct` grid has a maximum value > 1.1, it is treated as a percent product and divided by 100; otherwise it is assumed to already be a fraction. A concise informative message is emitted on load.
+- The pipeline operates on soil moisture as a bucket i.e., as fraction of fulness (0–1). To avoid silent unit errors, the loader performs a simple detection: if the loaded `sm_pct` grid has a maximum value > 1.1, it is treated as a percent product and divided by 100; otherwise it is assumed to already be a fraction. A message is emitted on load.
 
 Observed sample (2024, single-window)
 - Example quantiles observed for a 2024 window (flattened grid):
@@ -53,18 +53,17 @@ Current configured thresholds (kept for compatibility)
 - `alert_moisture_threshold`: 0.18
 
 Recommended threshold strategy
-- Short-term: validate the existing defaults on the dataset you are running. For the 2024 sample above, plausible short-term values would be in the range 0.01–0.03 (1–3% fraction) for `moisture_threshold`.
-- Medium-term (recommended): compute thresholds from a multi-year climatology for the region/season. For example:
-  - `moisture_threshold` = 25th percentile of the climatology
-  - `severe_moisture_threshold` = 10th percentile
-  - `alert_moisture_threshold` = 33rd percentile or `moisture_threshold + margin`
+- Medium-term (recommended): compute thresholds from a multi-year climatology for the region/season, e.g.:
+- `moisture_threshold` = 25th percentile of the climatology
+- `severe_moisture_threshold` = 10th percentile
+- `alert_moisture_threshold` = 33rd percentile or `moisture_threshold + margin`
 
 Autodetection and safe defaults
-- The loader prints a short summary of the original maximum and whether a conversion occurred. This is a useful run-time sanity check before interpreting diagnostics.
+- The loader prints a summary of the original maximum and whether a conversion occurred. This is a useful run-time sanity check before interpreting diagnostics.
 
 ---
 
-## 3) CatBoost: why, what, and how
+## 3) CatBoost
 
 Why CatBoost
 - CatBoost is a gradient-boosted decision-tree implementation that handles categorical variables (not used presently), provides robust default behaviour, and requires minimal preprocessing for tabular data. It is fast, deterministic when configured, and well-suited for small-to-medium tabular problems like grid-sample classification.
@@ -155,7 +154,6 @@ Downstream/decision-support considerations
 ---
 
 ## Example run
-
 Use the project `uv` toolchain to run a short window for testing:
 
 ```bash
@@ -174,7 +172,3 @@ uv run python main.py \
   --min-lon 112 \
   --max-lon 129
 ```
-
----
-
-If you'd like, I can convert this to a PDF, add it to the repo root as `TECHNICAL_REPORT.md` (already created), or extend sections with equations and more explicit calibration code (e.g., the percentile helper). Any parts you want expanded or adjusted? 
