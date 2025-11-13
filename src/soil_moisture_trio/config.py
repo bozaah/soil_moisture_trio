@@ -11,19 +11,19 @@ class ClassifierConfig(BaseModel):
     ndvi_threshold: float = Field(0.3, ge=0, le=1, description="Low vegetation threshold")
     vpd_threshold: float = Field(20.0, ge=0, description="High VPD threshold")
     severe_moisture_threshold: float = Field(
-        0.15, ge=0, le=1, description="Critical dryness threshold for risk layer"
+        0.10, ge=0, le=1, description="Critical dryness threshold for risk layer"
     )
     critical_temp_threshold: float = Field(
-        35.0, ge=0, description="Critical heat threshold for risk layer"
+        40.0, ge=0, description="Critical heat threshold for risk layer"
     )
     critical_vpd_threshold: float = Field(
-        30.0, ge=0, description="Critical VPD threshold for risk layer"
+        32.0, ge=0, description="Critical VPD threshold for risk layer"
     )
     watch_margin: float = Field(
-        0.05, ge=0, description="Moisture margin above dryness threshold for watch state"
+        0.08, ge=0, description="Moisture margin above dryness threshold for watch state"
     )
     alert_moisture_threshold: float = Field(
-        0.22,
+        0.18,
         ge=0,
         le=1,
         description="Moisture threshold for the ALERT risk level (between watch and elevated).",

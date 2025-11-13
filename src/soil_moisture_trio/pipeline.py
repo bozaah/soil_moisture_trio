@@ -49,10 +49,13 @@ class DryWetClassifierPipeline:
         
         for key, arr in data_arrays.items():
             temp_arr = arr.copy()
+            # Determine spatial axes: assume the last two axes are (lat, lon).
+            lat_axis = -2
+            lon_axis = -1
             if lat_desc:
-                temp_arr = temp_arr[::-1, ...]
+                temp_arr = np.flip(temp_arr, axis=lat_axis)
             if lon_desc:
-                temp_arr = temp_arr[:, ::-1, ...]
+                temp_arr = np.flip(temp_arr, axis=lon_axis)
             aligned[key] = temp_arr
         
         if lat_desc:
@@ -67,9 +70,20 @@ class DryWetClassifierPipeline:
         
         lat_indices = np.where(lat_mask)[0]
         lon_indices = np.where(lon_mask)[0]
-        
+
         for key in aligned:
-            aligned[key] = aligned[key][np.ix_(lat_mask, lon_mask)]
+            arr = aligned[key]
+            # If array is 2D (lat, lon), use np.ix_. If it has leading dims
+            # (e.g., band, lat, lon), take along the last two axes safely.
+            if arr.ndim == 2:
+                aligned[key] = arr[np.ix_(lat_indices, lon_indices)]
+            elif arr.ndim > 2:
+                # take along the latitude axis (-2) then longitude axis (-1)
+                tmp = np.take(arr, lat_indices, axis=-2)
+                tmp = np.take(tmp, lon_indices, axis=-1)
+                aligned[key] = tmp
+            else:
+                aligned[key] = arr
         
         return aligned, lat_array[lat_indices], lon_array[lon_indices]
     
@@ -141,10 +155,14 @@ class DryWetClassifierPipeline:
 
     def _load_all_real_data(self) -> Dict[str, np.ndarray]:
         """Load required grids via either NetCDF or the weather_tools SILO loader."""
+        # Use the 'sm_pct' product (percent) as the canonical soil moisture
+        # source. We convert percent -> fraction (0-100 -> 0-1) so the rest of
+        # the pipeline operates on volumetric fraction values consistent with
+        # `ClassifierConfig` thresholds.
         data_sources = {
             'soil_moisture': {
-                'url': f'https://thredds.nci.org.au/thredds/dodsC/iu04/australian-water-outlook/historical/v1/AWRALv7/processed/values/day/sm_{self.config.year}.nc',
-                'var_name': 'sm'
+                'pct_url': f'https://thredds.nci.org.au/thredds/dodsC/iu04/australian-water-outlook/historical/v1/AWRALv7/processed/values/day/sm_pct_{self.config.year}.nc',
+                'pct_var': 'sm_pct',
             },
             'temperature': {
                 'url': f'https://s3-ap-southeast-2.amazonaws.com/silo-open-data/Official/annual/max_temp/{self.config.year}.max_temp.nc',
@@ -156,14 +174,50 @@ class DryWetClassifierPipeline:
             }
         }
 
-        soil_moisture_data, soil_meta = self._load_real_netcdf(
-            data_sources['soil_moisture']['url'],
-            data_sources['soil_moisture']['var_name']
-        )
+        # Load the preferred percent product (sm_pct) and convert percent -> fraction
+        # (0-100 -> 0-1). We intentionally no longer fall back to the legacy `sm`
+        # product to avoid unit confusion.
+        pct_url = data_sources['soil_moisture']['pct_url']
+        pct_var = data_sources['soil_moisture']['pct_var']
+        try:
+            soil_moisture_data, soil_meta = self._load_real_netcdf(pct_url, pct_var)
+            # Be defensive about units: some deployments provide `sm_pct` as 0-100
+            # (percent) while others already provide a 0-1 fraction. Detect which
+            # case we're in by inspecting the maximum value and only convert when
+            # it clearly looks like a percent product (> 1.1).
+            soil_moisture_data = np.asarray(soil_moisture_data, dtype=float)
+            try:
+                original_max = float(np.nanmax(soil_moisture_data))
+            except Exception:
+                original_max = float('nan')
 
-        with xr.open_dataset(data_sources['soil_moisture']['url']) as ds:
-            lats = ds['latitude'].values
-            lons = ds['longitude'].values
+            converted = False
+            if np.isnan(original_max):
+                print("Loaded soil moisture product contains no finite values.")
+            else:
+                # Heuristic: if the max > 1.1 we assume the product is 0-100 percent
+                if original_max > 1.1:
+                    soil_moisture_data = soil_moisture_data / 100.0
+                    converted = True
+                    print(f"Detected sm_pct in percent scale (max={original_max:.3f}); converted to fraction by dividing by 100.")
+                else:
+                    print(f"Detected sm_pct already in fraction (0-1) (max={original_max:.3f}); no conversion applied.")
+            with xr.open_dataset(pct_url) as ds:
+                lats = ds['latitude'].values
+                lons = ds['longitude'].values
+            # Print a concise summary message about what we loaded and whether we converted
+            if np.isnan(original_max):
+                print(f"Loaded soil moisture product from {pct_url}; no finite values found.")
+            else:
+                if converted:
+                    print(f"Loaded soil moisture product from {pct_url} (original max={original_max:.3f}); converted to fraction.")
+                else:
+                    print(f"Loaded soil moisture product from {pct_url} (max={original_max:.3f}); no conversion applied.")
+        except Exception as exc:
+            raise RuntimeError(
+                f"Failed to load preferred soil moisture percent product '{pct_url}': {exc}.\n"
+                "This pipeline requires the 'sm_pct' product (percent) for soil moisture."
+            )
 
         time_metas = [soil_meta]
         data: Dict[str, np.ndarray] = {}
@@ -445,5 +499,5 @@ class DryWetClassifierPipeline:
         if classification_grid is None:
             classification_grid = self.predict_grid()
 
-        risk_map, summary = assess_risk_levels(self.data_grids, classification_grid, self.config)
-        return {"risk_map": risk_map, "summary": summary}
+        risk_map, summary, stress_index = assess_risk_levels(self.data_grids, classification_grid, self.config)
+        return {"risk_map": risk_map, "summary": summary, "stress_index": stress_index}

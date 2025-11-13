@@ -4,7 +4,7 @@ from typing import Dict, Optional
 
 import matplotlib
 
-matplotlib.use("Agg")  # Ensure headless rendering
+matplotlib.use("Agg")
 import matplotlib.pyplot as plt  # noqa: E402
 import numpy as np
 from matplotlib.colors import BoundaryNorm, ListedColormap
@@ -12,25 +12,65 @@ from matplotlib.colors import BoundaryNorm, ListedColormap
 from src.soil_moisture_trio.risk import RISK_COLORS, RISK_LABELS, RiskLevel
 
 
+# ---------------------------------------------------------------------
+# Main combined plot: categorical map + continuous dryness panel
+# ---------------------------------------------------------------------
 def save_risk_plot(
     risk_map: np.ndarray,
+    stress_index: Optional[np.ndarray],
     lats: np.ndarray,
     lons: np.ndarray,
     output_path: str = "risk_map.png",
     time_metadata: Optional[Dict[str, str]] = None,
 ) -> Path:
     """
-    Render a PNG heatmap of the risk layer with readable labels.
+    Render a two-panel PNG figure:
+      - Left: Categorical Dry/Wet Risk map
+      - Right: Continuous Dryness–Stress Index map
 
     Args:
-        risk_map: 2D numpy array of RiskLevel values.
-        lats/lons: 1D coordinate arrays that align with the grid.
-        output_path: Path for the PNG file.
-
-    Returns:
-        Path to the written PNG file.
+        risk_map: 2D array of integer risk levels.
+        stress_index: 2D array of continuous dryness–stress values (0–1).
+        lats/lons: 1D coordinate arrays aligned with the grid.
+        output_path: Filepath for PNG.
+        time_metadata: Optional date metadata dict.
     """
+    # Backwards-compatibility: older callers used signature
+    # save_risk_plot(risk_map, lats, lons, output_path)
+    # while newer callers pass stress_index as second arg. Detect the legacy
+    # positional ordering and reorder arguments accordingly.
+    def _is_arraylike(x):
+        return isinstance(x, (list, tuple, np.ndarray))
+
+    # If the third positional arg (lons) is not array-like but the first two are,
+    # it's likely the caller used the old signature: (risk_map, lats, lons, output)
+    if not _is_arraylike(lons) and _is_arraylike(stress_index) and _is_arraylike(lats):
+        output_path = lons  # third positional was actually output_path
+        lons = lats  # second positional was actually lons
+        lats = stress_index  # first positional after risk_map was lats
+        stress_index = None
+
     risk_map = np.asarray(risk_map)
+    # Allow callers to omit the continuous stress index (None). In that case derive a
+    # numeric fallback from the categorical `risk_map` so plotting still works.
+    if stress_index is None:
+        # create float array filled with NaN and populate from risk categories
+        stress_index = np.full(risk_map.shape, np.nan, dtype=float)
+        try:
+            # Map RiskLevel enum values to representative continuous stress scores
+            mapping = {
+                RiskLevel.LOW: 0.15,
+                RiskLevel.WATCH: 0.45,
+                RiskLevel.ALERT: 0.7,
+                RiskLevel.CRITICAL: 0.92,
+            }
+            for lvl, val in mapping.items():
+                stress_index[risk_map == lvl] = val
+        except Exception:
+            # If risk_map is not categorical (e.g., raw integers), attempt safe coercion
+            stress_index = np.asarray(stress_index)
+    else:
+        stress_index = np.asarray(stress_index)
     lats = np.asarray(lats)
     lons = np.asarray(lons)
 
@@ -40,73 +80,139 @@ def save_risk_plot(
     output = Path(output_path)
     output.parent.mkdir(parents=True, exist_ok=True)
 
-    colors = [RISK_COLORS[level] for level in RiskLevel]
-    cmap = ListedColormap(colors)
-    cmap.set_bad("#bdbdbd")
+    # ---- Color setups ----
+    cmap_class = ListedColormap([RISK_COLORS[l] for l in RiskLevel])
+    cmap_class.set_bad("#bdbdbd")
     bounds = np.arange(len(RiskLevel) + 1) - 0.5
-    norm = BoundaryNorm(bounds, cmap.N)
+    norm_class = BoundaryNorm(bounds, cmap_class.N)
 
-    lon_extent = float(np.max(lons) - np.min(lons))
-    lat_extent = float(np.max(lats) - np.min(lats))
-    base_height = 6
-    aspect = lon_extent / (lat_extent or 1)
-    aspect = min(max(aspect, 0.75), 2.5)
-    fig_width = base_height * aspect
+    cmap_cont = plt.cm.RdYlBu_r  # continuous dryness scale
+    cmap_cont.set_bad("#bdbdbd")
 
-    fig, ax = plt.subplots(figsize=(fig_width + 2.5, base_height), constrained_layout=False)
+    # ---- Layout ----
+    fig, axes = plt.subplots(1, 2, figsize=(12, 6.5), constrained_layout=True)
+
+    # --- Panel A: categorical risk ---
+    ax1 = axes[0]
     risk_display = np.ma.masked_less(risk_map, 0)
-    ax.pcolormesh(
-        lons,
-        lats,
-        risk_display,
-        cmap=cmap,
-        norm=norm,
-        shading="nearest",
-    )
-    ax.set_xlim(np.min(lons), np.max(lons))
-    ax.set_ylim(np.min(lats), np.max(lats))
-    ax.set_aspect("equal", adjustable="box")
-    ax.set_xlabel("Longitude", fontsize=12)
-    ax.set_ylabel("Latitude", fontsize=12)
+    mesh1 = ax1.pcolormesh(lons, lats, risk_display, cmap=cmap_class, norm=norm_class, shading="auto")
+    ax1.set_xlabel("Longitude")
+    ax1.set_ylabel("Latitude")
+    title = "Dryness–Stress Risk (Physics-Based)"
     if time_metadata and time_metadata.get("time_start") and time_metadata.get("time_end"):
         title = _format_title_with_dates(time_metadata["time_start"], time_metadata["time_end"])
-    else:
-        title = "Dry/Wet Risk"
-    ax.set_title(title, fontsize=14, pad=12)
-    ax.tick_params(labelsize=10)
+    ax1.set_title(title)
+    cbar1 = fig.colorbar(mesh1, ax=ax1, orientation="vertical", pad=0.02, fraction=0.046)
+    cbar1.set_ticks(np.arange(len(RiskLevel)))
+    cbar1.set_ticklabels([RISK_LABELS[l] for l in RiskLevel])
+    cbar1.set_label("Risk Level")
+    cbar1.ax.tick_params(labelsize=9)
 
-    handles = [
-        plt.Rectangle((0, 0), 1, 1, color=RISK_COLORS[level]) for level in RiskLevel
-    ]
-    labels = [RISK_LABELS[level] for level in RiskLevel]
-    if np.any(risk_map < 0):
-        handles.append(plt.Rectangle((0, 0), 1, 1, color="#bdbdbd"))
-        labels.append("No Data")
-    ax.legend(
-        handles,
-        labels,
-        title="Risk Levels",
-        fontsize=10,
-        title_fontsize=11,
-        loc="center left",
-        bbox_to_anchor=(1.0, 0.5),
-        borderaxespad=0.0,
-        frameon=True,
-    )
+    # --- Panel B: continuous dryness index ---
+    ax2 = axes[1]
+    cont_disp = np.ma.masked_invalid(stress_index)
+    mesh2 = ax2.pcolormesh(lons, lats, cont_disp, cmap=cmap_cont, vmin=0, vmax=1, shading="auto")
+    ax2.set_xlabel("Longitude")
+    ax2.set_ylabel("Latitude")
+    ax2.set_title("Continuous Dryness–Stress Index (0–1)")
+    cbar2 = fig.colorbar(mesh2, ax=ax2, orientation="vertical", pad=0.02, fraction=0.046)
+    cbar2.set_label("Dryness–Stress Index")
+    cbar2.ax.tick_params(labelsize=9)
 
-    fig.subplots_adjust(left=0.12, right=0.85, top=0.92, bottom=0.12)
+    for ax in axes:
+        ax.set_xlim(np.min(lons), np.max(lons))
+        ax.set_ylim(np.min(lats), np.max(lats))
+        ax.set_aspect("equal", adjustable="box")
+        ax.tick_params(labelsize=10)
 
-    fig.savefig(output, dpi=200)
+    fig.savefig(output, dpi=200, bbox_inches="tight", facecolor="white")
     plt.close(fig)
     return output
 
 
+# ---------------------------------------------------------------------
+# Diagnostic plots: histogram + scatter
+# ---------------------------------------------------------------------
+def plot_dryness_diagnostics(
+    soil_moisture: np.ndarray,
+    vpd: np.ndarray,
+    stress_index: Optional[np.ndarray],
+    output_path: str = "stress_diagnostics.png",
+) -> Path:
+    """
+    Create diagnostic plots showing distribution and relationships
+    between soil moisture, VPD (vapour pressure deficit), and
+    the dryness–stress index.
+    """
+    output = Path(output_path)
+    output.parent.mkdir(parents=True, exist_ok=True)
+
+    fig, axes = plt.subplots(1, 2, figsize=(11, 5), constrained_layout=True)
+
+    # Ensure stress_index is numeric. If missing or non-numeric, derive a simple
+    # proxy from soil moisture (1 - soil_moisture) clipped to [0,1]. This keeps
+    # diagnostics working even when the physics-based stress index isn't available.
+    if stress_index is None:
+        stress_index = np.clip(1.0 - np.asarray(soil_moisture, dtype=float), 0.0, 1.0)
+    else:
+        try:
+            stress_index = np.asarray(stress_index, dtype=float)
+        except Exception:
+            stress_index = np.clip(1.0 - np.asarray(soil_moisture, dtype=float), 0.0, 1.0)
+
+    # Flatten arrays so masking is consistent and robust to minor shape mismatches
+    soil_flat = np.asarray(soil_moisture, dtype=float).flatten()
+    vpd_flat = np.asarray(vpd, dtype=float).flatten()
+    stress_flat = stress_index.flatten()
+
+    # Detect and mask obviously-bad VPD values (e.g., unit/scale errors)
+    extreme_mask = np.abs(vpd_flat) > 10000
+    if extreme_mask.any():
+        print(f"Warning: {int(extreme_mask.sum())} extreme VPD values detected; masking for diagnostics.")
+        vpd_flat[extreme_mask] = np.nan
+
+    # Build final valid mask
+    valid = np.isfinite(stress_flat) & np.isfinite(soil_flat) & np.isfinite(vpd_flat)
+
+    # Histogram of dryness–stress
+    ax1 = axes[0]
+    ax1.hist(stress_flat[valid], bins=40, color="steelblue", alpha=0.8)
+    ax1.set_xlabel("Dryness–Stress Index (0–1)")
+    ax1.set_ylabel("Frequency")
+    ax1.set_title("Distribution of Dryness–Stress Index")
+
+    # Scatter of soil moisture vs. VPD colored by stress
+    ax2 = axes[1]
+    sc = ax2.scatter(
+        soil_flat[valid],
+        vpd_flat[valid],
+        c=stress_flat[valid],
+        cmap="RdYlBu_r",
+        vmin=0,
+        vmax=1,
+        s=10,
+        alpha=0.7,
+        edgecolor="none",
+    )
+    ax2.set_xlabel("Soil Moisture (fraction)")
+    ax2.set_ylabel("VPD (hPa)")
+    ax2.set_title("Soil Moisture vs. VPD\ncolored by Dryness–Stress Index")
+    cbar = fig.colorbar(sc, ax=ax2)
+    cbar.set_label("Dryness–Stress Index")
+
+    fig.savefig(output, dpi=300, bbox_inches="tight", facecolor="white")
+    plt.close(fig)
+    return output
+
+
+# ---------------------------------------------------------------------
+# Helper for date formatting
+# ---------------------------------------------------------------------
 def _format_title_with_dates(start_iso: str, end_iso: str) -> str:
     start_dt = _parse_iso_datetime(start_iso)
     end_dt = _parse_iso_datetime(end_iso)
     if not start_dt or not end_dt:
         return f"Dry/Wet Risk ({start_iso} – {end_iso})"
-
     same_year = start_dt.year == end_dt.year
     if same_year:
         start_label = _format_date_label(start_dt, include_year=False)
@@ -132,4 +238,4 @@ def _parse_iso_datetime(value: str) -> Optional[datetime]:
         return None
 
 
-__all__ = ["save_risk_plot"]
+__all__ = ["save_risk_plot", "plot_dryness_diagnostics"]

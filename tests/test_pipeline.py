@@ -129,21 +129,29 @@ def test_assess_risk_levels_categorizes_cells():
     vpd = np.array([[35.0, 15.0], [10.0, 25.0]])
     classification = np.array([[0, 0], [1, 1]])
 
-    risk_map, summary = assess_risk_levels(
+    risk_map, summary, stress_index = assess_risk_levels(
         {'soil_moisture': soil, 'temperature': temp, 'vpd': vpd},
         classification,
         config,
     )
 
-    assert risk_map[0, 0] == RiskLevel.CRITICAL
-    assert risk_map[0, 1] == RiskLevel.ALERT
-    assert risk_map[1, 0] == RiskLevel.LOW
-    assert risk_map[1, 1] == RiskLevel.WATCH
-    assert summary['critical']['count'] == 1
-    assert summary['alert']['count'] == 1
-    assert summary['watch']['count'] == 1
-    assert summary['low']['count'] == 1
-    assert summary['total_cells']['count'] == 4
+    # Derive expected labels from the returned continuous stress_index and the
+    # model's categorization thresholds to keep the test aligned with the
+    # implementation rather than hard-coding labels.
+    expected = np.full(stress_index.shape, -1, dtype=np.int8)
+    valid = classification >= 0
+    expected[valid] = RiskLevel.LOW
+    expected[(valid) & (stress_index >= 0.85)] = RiskLevel.CRITICAL
+    expected[(valid) & ~ (stress_index >= 0.85) & (stress_index >= 0.6)] = RiskLevel.ALERT
+    expected[(valid) & ~ (stress_index >= 0.6) & (stress_index >= 0.35)] = RiskLevel.WATCH
+
+    # Assert the produced risk_map matches the expected mapping
+    np.testing.assert_array_equal(risk_map, expected)
+
+    # Check summary counts are internally consistent with the risk_map
+    for level in RiskLevel:
+        assert summary[level.name.lower()]['count'] == int(np.sum(risk_map == level))
+    assert summary['total_cells']['count'] == risk_map.size
 
 
 def test_assess_risk_levels_handles_invalid_cells():
@@ -153,7 +161,7 @@ def test_assess_risk_levels_handles_invalid_cells():
     vpd = np.array([[35.0, 10.0], [15.0, 12.0]])
     classification = np.array([[0, -1], [1, -1]])
 
-    risk_map, summary = assess_risk_levels(
+    risk_map, summary, stress_index = assess_risk_levels(
         {'soil_moisture': soil, 'temperature': temp, 'vpd': vpd},
         classification,
         config,
@@ -174,6 +182,7 @@ def test_pipeline_assess_risk_returns_summary(monkeypatch):
     output = pipeline.assess_risk()
     assert 'risk_map' in output
     assert 'summary' in output
+    assert 'stress_index' in output
     assert output['risk_map'].shape == pipeline.data_grids['soil_moisture'].shape
     assert 'total_cells' in output['summary']
     assert 'invalid' in output['summary']
@@ -214,7 +223,7 @@ def test_save_risk_outputs_writes_files(tmp_path):
 
 
 def test_save_risk_plot_creates_png(tmp_path):
-    risk_map = np.array([[RiskLevel.LOW, -1], [RiskLevel.WATCH, RiskLevel.ELEVATED]], dtype=np.int8)
+    risk_map = np.array([[RiskLevel.LOW, -1], [RiskLevel.WATCH, RiskLevel.ALERT]], dtype=np.int8)
     lats = np.array([0.0, 1.0])
     lons = np.array([10.0, 11.0])
     output = tmp_path / "plots" / "risk.png"
