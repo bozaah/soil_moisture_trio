@@ -1,68 +1,96 @@
-## Soil Moisture Trio
+# Soil Moisture Trio
 
-This project trains a CatBoost classifier to label Australian grid cells as **dry** or **wet** based on soil moisture, SILO temperature, NDVI (placeholder), and VPD. The CLI in `main.py` orchestrates data prep, training/testing, risk scoring, and optional Folium/PNG exports.
+A machine learning pipeline that classifies Australian grid cells as **dry** or **wet** using AWRAL soil moisture, SILO temperature, and SILO vapour pressure deficit. Produces categorical risk maps for decision support.
 
-Key changes and operational notes (recent):
+## Outputs
 
-- The pipeline now requires the AWRAL `sm_pct` product for soil moisture. The loader is defensive about units: it will autodetect whether `sm_pct` is expressed as percent (0–100) or already as a fraction (0–1) and only convert (divide by 100) when the data clearly appears to be percent. A short INFO message is printed at load time describing which branch was taken. Internally the pipeline works with volumetric fraction (0–1).
-- The legacy `sm` product fallback has been removed to avoid unit confusion. If `sm_pct` cannot be found the pipeline will raise a clear error (see `pipeline._load_all_real_data`).
-- `assess_risk_levels()` now returns a continuous per-cell "dryness / stress" index in addition to the categorical risk map and summary — callers (and `pipeline.assess_risk`) now expose this `stress_index` for plotting and diagnostics.
-- Plotting and diagnostics were hardened: diagnostic scatter/hist panels now flatten/mask NaNs and extreme outliers, and a lat/lon alignment bug (incorrect indexing for arrays with leading dims) was fixed so the diagnostic axes show realistic values.
+| Artifact | Format | Description |
+| --- | --- | --- |
+| Risk map | NetCDF | `RiskLevel` per cell: Low / Watch / Alert / Critical |
+| Summary | JSON | Cell counts and percentages per risk band |
+| Risk plot | PNG | Two-panel: categorical map + continuous stress index |
+| Interactive map | HTML | Optional Folium map (pass `--visualize`) |
 
-Weather data sourcing
+## Requirements
 
-- Soil moisture: AWRAL `sm_pct` NetCDF on NCI (required). The pipeline converts this percent product into a volumetric fraction internally.
-- SILO variables (max temperature, VPD, etc.) default to the `weather_tools` GeoTIFF/COG loader so we only download the requested bounding box. Use `--no-silo-cog-loader` to revert to the older NetCDF-based loader when needed.
+- Python 3.12 via [`uv`](https://docs.astral.sh/uv/)
+- Network access to NCI THREDDS (AWRAL `sm_pct`) and AWS S3 / `weather_tools` (SILO)
 
-Configure key loader/pipeline behaviour via `ClassifierConfig` and the `main.py` CLI flags:
-
-- `--silo-variable` (repeatable) selects which SILO variables/presets to request (e.g., `max_temp`, `vp_deficit`).
-- `--silo-cache-dir`, `--silo-cache-max-mb`, `--silo-overview-level`, and `--silo-buffer-deg` control COG subsetting and caching behaviour.
-- Spatial focus: `--min-lat/--max-lat/--min-lon/--max-lon`.
-
-Running the pipeline (example):
+## Setup
 
 ```bash
-.venv/bin/python main.py \
-  --silo-variable max_temp \
-  --silo-variable vp_deficit \
-  --year 2024 \
-  --start-date 2024-01-01 \
-  --end-date 2024-03-31
+uv sync
 ```
 
-Example using `uv` (project toolchain) with a WA bounding box and 2025-Oct window:
+## Quick Start
 
 ```bash
 uv run python main.py \
   --year 2025 \
   --start-date 2025-10-01 \
   --end-date 2025-10-15 \
-  --risk-output-prefix outputs/risk_layer_2025oct_WA \
-  --risk-plot-path outputs/risk_layer_2025oct_WA.png \
+  --risk-output-prefix outputs/risk_2025oct_WA \
+  --risk-plot-path outputs/risk_2025oct_WA.png \
   --silo-variable max_temp \
   --silo-variable vp_deficit \
-  --silo-cache-dir /tmp/silo_cache \
-  --silo-cache-max-mb 200 \
-  --min-lat -35 \
-  --max-lat -13 \
-  --min-lon 112 \
-  --max-lon 129
+  --min-lat -35 --max-lat -13 \
+  --min-lon 112 --max-lon 129
 ```
 
+See [docs/cli-reference.md](docs/cli-reference.md) for all flags.
 
-Thresholds and calibration guidance
+## How It Works
 
-The internal canonical soil moisture unit used by the pipeline is volumetric fraction (0–1). Note that some deployments of the AWRAL product provide `sm_pct` already as a fraction (0–1); others provide true percents (0–100). The loader now auto-detects and adapts. Recent diagnostics on 2024 data showed the grid contains much smaller values than older expectations (so an absolute cutoff like 0.25 would mark most cells dry).
+1. **Load** — AWRAL `sm_pct` (fraction 0–1) + SILO `max_temp` and `vp_deficit`, clipped to bounds and averaged over the requested time window
+2. **Label** — rule-based dry/wet labels from soil moisture, temperature, and VPD thresholds
+3. **Train** — CatBoost classifier on valid (non-NaN) grid cells
+4. **Predict** — classify full grid; ocean/missing cells encoded as `-1`
+5. **Risk** — physics-based dryness stress index → categorical risk map
 
-Recommendations:
+Full pipeline detail: [docs/architecture.md](docs/architecture.md)
 
-- Short-term (fast check): keep the existing hardcoded thresholds for compatibility, but when running on a new dataset try a lower `moisture_threshold` (for example 0.01–0.03 = 1–3% volumetric fraction) and visually inspect the risk maps.
-- Medium/long-term (recommended): compute thresholds from a reference climatology (e.g., set `moisture_threshold` to the 25th percentile of the multi-year baseline for your region/season; `severe_moisture_threshold` could be the 10th percentile). This is more robust than fixed numbers and will adapt to sensor/processing differences.
-- The pipeline now prints a helpful message when it detects that `sm_pct` was converted; use that to verify whether your copy of the product needs a manual override.
+## Project Structure
 
-Developer notes
+```text
+src/soil_moisture_trio/
+  config.py        ClassifierConfig — all tunable parameters (Pydantic)
+  pipeline.py      DryWetClassifierPipeline — data loading, ML, prediction
+  data_sources.py  WeatherToolsSiloLoader — SILO COG fetcher + cache
+  risk.py          Stress index, RiskLevel enum, NetCDF/JSON output
+  plot.py          PNG outputs
+  visualize.py     Folium HTML map
+tests/             pytest suite (mocks network I/O)
+docs/              Reference documentation
+sessions/          Per-session notes and working log
+```
 
-- Tests mock `_load_all_real_data` for speed (so unit tests remain fast and deterministic).
+## Configuration
 
-See `Plan.md` for suggested follow-ups: threshold calibration, integration tests, and optional CLI compatibility flag.
+All thresholds and hyperparameters live in `ClassifierConfig` (`src/.../config.py`). Key defaults:
+
+| Parameter | Default | Note |
+| --- | --- | --- |
+| `moisture_threshold` | 0.25 | **Likely needs lowering** for your dataset — see [docs/thresholds.md](docs/thresholds.md) |
+| `temp_threshold` | 30.0 °C | Dry label trigger |
+| `vpd_threshold` | 20.0 hPa | Dry label trigger |
+| `catboost_iterations` | 30 | Override via `--catboost-iterations` |
+
+## Tests
+
+```bash
+uv run pytest tests/test_pipeline.py tests/test_data_sources.py -q
+```
+
+> `tests/test_moisture_ranges.py` is a diagnostic script — run it directly, not via pytest.
+
+## Docs
+
+| Doc | Contents |
+| --- | --- |
+| [docs/architecture.md](docs/architecture.md) | Pipeline flow, data contract, spatial handling |
+| [docs/data-sources.md](docs/data-sources.md) | AWRAL/SILO sources, units, placeholders |
+| [docs/thresholds.md](docs/thresholds.md) | Threshold guidance and calibration strategy |
+| [docs/cli-reference.md](docs/cli-reference.md) | All CLI flags |
+| [docs/risk-model.md](docs/risk-model.md) | Stress index formula, risk bands |
+| [docs/backlog.md](docs/backlog.md) | Open issues and next steps |
+| [CHANGELOG.md](CHANGELOG.md) | Per-sprint changes |

@@ -11,9 +11,6 @@ def run_pipeline(
     visualize: bool = False,
     output_path: str = "classification_map.html",
     risk_output_prefix: str | None = None,
-    catboost_iterations: int | None = None,
-    catboost_depth: int | None = None,
-    catboost_learning_rate: float | None = None,
     risk_plot_path: str | None = None,
     year: int | None = None,
     start_date: str | None = None,
@@ -29,19 +26,13 @@ def run_pipeline(
     min_lon: float | None = None,
     max_lon: float | None = None,
 ) -> None:
-    """Execute the end-to-end training/eval flow with optional visualization."""
+    """Execute the end-to-end pipeline: load data, classify, assess risk, save outputs."""
     # ------------------------------------------------------------------
-    # 1. Configuration setup
+    # 1. Configuration
     # ------------------------------------------------------------------
     config_kwargs = {"moisture_threshold": 0.2}
     if year is not None:
         config_kwargs["year"] = year
-    if catboost_iterations is not None:
-        config_kwargs["catboost_iterations"] = catboost_iterations
-    if catboost_depth is not None:
-        config_kwargs["catboost_depth"] = catboost_depth
-    if catboost_learning_rate is not None:
-        config_kwargs["catboost_learning_rate"] = catboost_learning_rate
     if start_date is not None:
         config_kwargs["start_date"] = start_date
     if end_date is not None:
@@ -71,29 +62,20 @@ def run_pipeline(
     pipeline = DryWetClassifierPipeline(config)
 
     # ------------------------------------------------------------------
-    # 2. Prepare data
+    # 2. Load and prepare data
     # ------------------------------------------------------------------
     pipeline.prepare_data()
     if pipeline.time_metadata:
-        print(
-            f"Time window: {pipeline.time_metadata['time_start']} to {pipeline.time_metadata['time_end']}"
-        )
+        print(f"Time window: {pipeline.time_metadata['time_start']} to {pipeline.time_metadata['time_end']}")
 
     # ------------------------------------------------------------------
-    # 3. Train and evaluate
+    # 3. Classify and assess risk
     # ------------------------------------------------------------------
-    pipeline.train()
-    metrics = pipeline.evaluate()
-    print(f"Metrics: {metrics}")
-
-    # ------------------------------------------------------------------
-    # 4. Predict and assess risk
-    # ------------------------------------------------------------------
-    pred_map = pipeline.predict_grid()
+    pred_map = pipeline.classify_grid()
     risk_report = pipeline.assess_risk(pred_map)
     risk_map = risk_report["risk_map"]
     risk_summary = risk_report["summary"]
-    stress_index = risk_report.get("stress_index")  # available from new dryness model
+    stress_index = risk_report["stress_index"]
 
     print("Risk summary (counts):")
     preferred_order = ["critical", "alert", "watch", "low", "invalid", "valid_cells", "total_cells"]
@@ -103,7 +85,7 @@ def run_pipeline(
             print(f"  {key}: {stats['count']} cells ({stats['percentage']:.2%})")
 
     # ------------------------------------------------------------------
-    # 5. Save NetCDF and JSON summary
+    # 4. Save NetCDF and JSON summary
     # ------------------------------------------------------------------
     if risk_output_prefix:
         files = save_risk_outputs(
@@ -117,7 +99,7 @@ def run_pipeline(
         print(f"Risk layer saved to {files['netcdf']} and summary to {files['summary']}")
 
     # ------------------------------------------------------------------
-    # 6. Produce visualization outputs
+    # 5. Visualisation outputs
     # ------------------------------------------------------------------
     if risk_plot_path:
         print("Generating risk map with continuous dryness panel...")
@@ -131,7 +113,6 @@ def run_pipeline(
         )
         print(f"Risk PNG exported to {plot_path}")
 
-        # Diagnostics: histogram + scatter plots
         diag_path = Path(risk_plot_path).with_name("stress_diagnostics.png")
         plot_dryness_diagnostics(
             soil_moisture=pipeline.data_grids["soil_moisture"],
@@ -141,12 +122,8 @@ def run_pipeline(
         )
         print(f"Diagnostic plots exported to {diag_path}")
 
-    # ------------------------------------------------------------------
-    # 7. Optional interactive map
-    # ------------------------------------------------------------------
     if visualize:
         from src.soil_moisture_trio.visualize import create_interactive_map
-
         create_interactive_map(
             risk_map=risk_map,
             lats=pipeline.data_grids["lats"],
@@ -165,9 +142,6 @@ if __name__ == "__main__":
     parser.add_argument("--output-path", default="classification_map.html", help="HTML output path.")
     parser.add_argument("--risk-output-prefix", default=None, help="Prefix for NetCDF + JSON outputs.")
     parser.add_argument("--risk-plot-path", default=None, help="Path for risk PNG figure.")
-    parser.add_argument("--catboost-iterations", type=int, default=None)
-    parser.add_argument("--catboost-depth", type=int, default=None)
-    parser.add_argument("--catboost-learning-rate", type=float, default=None)
     parser.add_argument("--year", type=int, default=None)
     parser.add_argument("--start-date", type=str, default=None)
     parser.add_argument("--end-date", type=str, default=None)
@@ -189,9 +163,6 @@ if __name__ == "__main__":
         visualize=args.visualize,
         output_path=args.output_path,
         risk_output_prefix=args.risk_output_prefix,
-        catboost_iterations=args.catboost_iterations,
-        catboost_depth=args.catboost_depth,
-        catboost_learning_rate=args.catboost_learning_rate,
         risk_plot_path=args.risk_plot_path,
         year=args.year,
         start_date=args.start_date,

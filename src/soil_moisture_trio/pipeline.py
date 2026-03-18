@@ -5,20 +5,17 @@ from typing import Any, Dict, Optional
 import numpy as np
 import pandas as pd
 import rioxarray as rio
-from catboost import CatBoostClassifier, Pool
 import xarray as xr
 
 from src.soil_moisture_trio.config import ClassifierConfig
 from src.soil_moisture_trio.data_sources import WeatherToolsSiloLoader, WeatherToolsResult
 from src.soil_moisture_trio.risk import assess_risk_levels
 
-# Main Pipeline Class
+
 class DryWetClassifierPipeline:
     def __init__(self, config: Optional[ClassifierConfig] = None):
         self.config = config or ClassifierConfig()
-        self.model: Optional[CatBoostClassifier] = None
         self.valid_mask_grid: Optional[np.ndarray] = None
-        self.valid_mask_flat: Optional[np.ndarray] = None
         self.time_metadata: Optional[Dict[str, str]] = None
         self._silo_loader: Optional[WeatherToolsSiloLoader] = None
         print(f"Pipeline initialized with config: {self.config.model_dump()}")
@@ -32,7 +29,7 @@ class DryWetClassifierPipeline:
                 buffer_degrees=self.config.silo_buffer_degrees,
             )
         return self._silo_loader
-    
+
     def _align_lat_lon(
         self,
         data_arrays: Dict[str, np.ndarray],
@@ -43,50 +40,42 @@ class DryWetClassifierPipeline:
         aligned = {}
         lat_array = np.array(lats)
         lon_array = np.array(lons)
-        
+
         lat_desc = lat_array[0] > lat_array[-1]
         lon_desc = lon_array[0] > lon_array[-1]
-        
+
         for key, arr in data_arrays.items():
             temp_arr = arr.copy()
-            # Determine spatial axes: assume the last two axes are (lat, lon).
-            lat_axis = -2
-            lon_axis = -1
             if lat_desc:
-                temp_arr = np.flip(temp_arr, axis=lat_axis)
+                temp_arr = np.flip(temp_arr, axis=-2)
             if lon_desc:
-                temp_arr = np.flip(temp_arr, axis=lon_axis)
+                temp_arr = np.flip(temp_arr, axis=-1)
             aligned[key] = temp_arr
-        
+
         if lat_desc:
             lat_array = lat_array[::-1]
         if lon_desc:
             lon_array = lon_array[::-1]
-        
+
         lat_mask = (lat_array >= self.config.min_lat) & (lat_array <= self.config.max_lat)
         lon_mask = (lon_array >= self.config.min_lon) & (lon_array <= self.config.max_lon)
         if not lat_mask.any() or not lon_mask.any():
             raise ValueError("Clipping bounds produced an empty grid. Adjust min/max lat/lon.")
-        
+
         lat_indices = np.where(lat_mask)[0]
         lon_indices = np.where(lon_mask)[0]
 
         for key in aligned:
             arr = aligned[key]
-            # If array is 2D (lat, lon), use np.ix_. If it has leading dims
-            # (e.g., band, lat, lon), take along the last two axes safely.
             if arr.ndim == 2:
                 aligned[key] = arr[np.ix_(lat_indices, lon_indices)]
             elif arr.ndim > 2:
-                # take along the latitude axis (-2) then longitude axis (-1)
                 tmp = np.take(arr, lat_indices, axis=-2)
                 tmp = np.take(tmp, lon_indices, axis=-1)
                 aligned[key] = tmp
-            else:
-                aligned[key] = arr
-        
+
         return aligned, lat_array[lat_indices], lon_array[lon_indices]
-    
+
     def _determine_time_window(self, time_values: np.ndarray) -> tuple[slice, Dict[str, str]]:
         if time_values.size == 0:
             return slice(None), {}
@@ -155,10 +144,6 @@ class DryWetClassifierPipeline:
 
     def _load_all_real_data(self) -> Dict[str, np.ndarray]:
         """Load required grids via either NetCDF or the weather_tools SILO loader."""
-        # Use the 'sm_pct' product (percent) as the canonical soil moisture
-        # source. We convert percent -> fraction (0-100 -> 0-1) so the rest of
-        # the pipeline operates on volumetric fraction values consistent with
-        # `ClassifierConfig` thresholds.
         data_sources = {
             'soil_moisture': {
                 'pct_url': f'https://thredds.nci.org.au/thredds/dodsC/iu04/australian-water-outlook/historical/v1/AWRALv7/processed/values/day/sm_pct_{self.config.year}.nc',
@@ -174,45 +159,27 @@ class DryWetClassifierPipeline:
             }
         }
 
-        # Load the preferred percent product (sm_pct) and convert percent -> fraction
-        # (0-100 -> 0-1). We intentionally no longer fall back to the legacy `sm`
-        # product to avoid unit confusion.
         pct_url = data_sources['soil_moisture']['pct_url']
         pct_var = data_sources['soil_moisture']['pct_var']
         try:
             soil_moisture_data, soil_meta = self._load_real_netcdf(pct_url, pct_var)
-            # Be defensive about units: some deployments provide `sm_pct` as 0-100
-            # (percent) while others already provide a 0-1 fraction. Detect which
-            # case we're in by inspecting the maximum value and only convert when
-            # it clearly looks like a percent product (> 1.1).
             soil_moisture_data = np.asarray(soil_moisture_data, dtype=float)
             try:
                 original_max = float(np.nanmax(soil_moisture_data))
             except Exception:
                 original_max = float('nan')
 
-            converted = False
             if np.isnan(original_max):
                 print("Loaded soil moisture product contains no finite values.")
+            elif original_max > 1.1:
+                soil_moisture_data = soil_moisture_data / 100.0
+                print(f"Detected sm_pct in percent scale (max={original_max:.3f}); converted to fraction.")
             else:
-                # Heuristic: if the max > 1.1 we assume the product is 0-100 percent
-                if original_max > 1.1:
-                    soil_moisture_data = soil_moisture_data / 100.0
-                    converted = True
-                    print(f"Detected sm_pct in percent scale (max={original_max:.3f}); converted to fraction by dividing by 100.")
-                else:
-                    print(f"Detected sm_pct already in fraction (0-1) (max={original_max:.3f}); no conversion applied.")
+                print(f"Detected sm_pct already in fraction (0-1) (max={original_max:.3f}); no conversion applied.")
+
             with xr.open_dataset(pct_url) as ds:
                 lats = ds['latitude'].values
                 lons = ds['longitude'].values
-            # Print a concise summary message about what we loaded and whether we converted
-            if np.isnan(original_max):
-                print(f"Loaded soil moisture product from {pct_url}; no finite values found.")
-            else:
-                if converted:
-                    print(f"Loaded soil moisture product from {pct_url} (original max={original_max:.3f}); converted to fraction.")
-                else:
-                    print(f"Loaded soil moisture product from {pct_url} (max={original_max:.3f}); no conversion applied.")
         except Exception as exc:
             raise RuntimeError(
                 f"Failed to load preferred soil moisture percent product '{pct_url}': {exc}.\n"
@@ -226,9 +193,7 @@ class DryWetClassifierPipeline:
 
         if self.config.use_silo_cog_loader:
             aligned_soil, clipped_lats, clipped_lons = self._align_lat_lon(
-                {'soil_moisture': soil_moisture_data},
-                lats,
-                lons,
+                {'soil_moisture': soil_moisture_data}, lats, lons,
             )
             data.update(aligned_soil)
             try:
@@ -238,18 +203,12 @@ class DryWetClassifierPipeline:
             except Exception as exc:
                 print(f"weather_tools COG loader failed ({exc}). Falling back to SILO NetCDF files.")
                 data, clipped_lats, clipped_lons, fallback_metas = self._load_silo_via_netcdf_and_align(
-                    soil_moisture_data,
-                    lats,
-                    lons,
-                    data_sources,
+                    soil_moisture_data, lats, lons, data_sources,
                 )
                 time_metas.extend(fallback_metas)
         else:
             data, clipped_lats, clipped_lons, fallback_metas = self._load_silo_via_netcdf_and_align(
-                soil_moisture_data,
-                lats,
-                lons,
-                data_sources,
+                soil_moisture_data, lats, lons, data_sources,
             )
             time_metas.extend(fallback_metas)
 
@@ -261,19 +220,10 @@ class DryWetClassifierPipeline:
                 "Ensure 'max_temp' and 'vp_deficit' are included in silo_variables."
             )
 
-        grid_shape = data['soil_moisture'].shape
-        ndvi = np.random.uniform(-0.1, 1.0, grid_shape)
-        ndwi = np.random.uniform(-0.5, 0.5, grid_shape)
-        fire_index = np.random.uniform(0, 10, grid_shape)
-
         return {
             'soil_moisture': data['soil_moisture'],
-            'temperature': data.get('temperature'),
-            'ndvi': ndvi,
-            'ndwi': ndwi,
-            'fire_index': fire_index,
-            'vpd': data.get('vpd'),
-            **{k: v for k, v in data.items() if k not in {'soil_moisture', 'temperature', 'vpd'}},
+            'temperature': data['temperature'],
+            'vpd': data['vpd'],
             'lats': clipped_lats,
             'lons': clipped_lons,
             'time_metadata': self.time_metadata,
@@ -373,131 +323,70 @@ class DryWetClassifierPipeline:
         return valid[0]
 
     def prepare_data(self) -> None:
-        """Prep X/y from the configured real-world data sources."""
+        """Load and validate grids. Builds valid_mask_grid from non-NaN cells."""
         data = self._load_all_real_data()
-        
-        # Flatten to samples
         soil = data['soil_moisture']
         temp = data['temperature']
-        ndvi = data['ndvi']
         vpd = data['vpd']
-        valid_mask_grid = (
-            np.isfinite(soil) &
-            np.isfinite(temp) &
-            np.isfinite(ndvi) &
-            np.isfinite(vpd)
-        )
-        valid_flat = valid_mask_grid.flatten()
-        if not valid_flat.any():
-            raise ValueError("No valid grid cells available after masking NaN values.")
-        
-        X = np.column_stack([
-            soil.flatten(),
-            temp.flatten(),
-            ndvi.flatten(),  # Placeholder until real NDVI integration
-            vpd.flatten()
-        ])
 
-        y_full = np.where(
-            (soil.flatten() < self.config.moisture_threshold) &
-            ((temp.flatten() > self.config.temp_threshold) | (vpd.flatten() > self.config.vpd_threshold)),
-            0, 1
-        ).astype(np.float32)
+        self.valid_mask_grid = np.isfinite(soil) & np.isfinite(temp) & np.isfinite(vpd)
+        if not self.valid_mask_grid.any():
+            raise ValueError("No valid grid cells after masking NaN values.")
 
-        X = X[valid_flat]
-        y = y_full[valid_flat]
+        self.data_grids = data
+        valid_count = int(self.valid_mask_grid.sum())
+        print(f"Data prepared. Valid cells: {valid_count} of {soil.size}")
 
-        split = int(0.8 * len(X))
-        self.X_train, self.X_test = X[:split], X[split:]
-        self.y_train, self.y_test = y[:split], y[split:]
-        self.data_grids = data  # Store for grid prediction
-        self.valid_mask_grid = valid_mask_grid
-        self.valid_mask_flat = valid_flat
-        
-        counts = np.bincount(y.astype(int), minlength=2)
-        print(f"Data prepared. Labels: {counts} (dry, wet)")
-    
-    def build_model(self) -> None:
-        """Initialize CatBoost model."""
-        self.model = CatBoostClassifier(
-            iterations=self.config.catboost_iterations or self.config.epochs,
-            depth=self.config.catboost_depth,
-            learning_rate=self.config.catboost_learning_rate or self.config.lr,
-            loss_function="Logloss",
-            eval_metric="Logloss",
-            verbose=False,
+    def classify_grid(self) -> np.ndarray:
+        """
+        Apply threshold rule to produce a dry/wet classification grid.
+
+        Returns an int8 grid where:
+          0 = dry  (sm < moisture_threshold AND (temp > temp_threshold OR vpd > vpd_threshold))
+          1 = wet  (all other valid cells)
+         -1 = invalid (NaN / ocean)
+
+        Assumptions:
+          - sm_pct has been converted to fraction (0-1) prior to this call
+          - moisture_threshold, temp_threshold, vpd_threshold are in matching units
+          - This is a deterministic rule, not an ML prediction
+        """
+        if not hasattr(self, 'data_grids') or self.valid_mask_grid is None:
+            raise ValueError("Call prepare_data() before classify_grid().")
+
+        soil = self.data_grids['soil_moisture']
+        temp = self.data_grids['temperature']
+        vpd = self.data_grids['vpd']
+
+        dry_mask = (
+            (soil < self.config.moisture_threshold) &
+            ((temp > self.config.temp_threshold) | (vpd > self.config.vpd_threshold))
         )
-    
-    def train(self) -> None:
-        """Train the CatBoost classifier."""
-        if not self.model:
-            self.build_model()
-        
-        train_pool = Pool(self.X_train, label=self.y_train)
-        eval_pool = Pool(self.X_test, label=self.y_test)
-        self.model.fit(train_pool, eval_set=eval_pool, verbose=False)
-    
-    def evaluate(self) -> Dict[str, float]:
-        """Evaluate on test set."""
-        if not self.model:
-            raise ValueError("Train first!")
-        
-        test_probs = self.model.predict_proba(self.X_test)[:, 1]
-        epsilon = 1e-9
-        test_loss = -np.mean(
-            self.y_test * np.log(test_probs + epsilon) +
-            (1 - self.y_test) * np.log(1 - test_probs + epsilon)
-        )
-        accuracy = np.mean((test_probs > 0.5) == self.y_test)
-        
-        print(f"Test Loss: {test_loss:.4f}, Accuracy: {accuracy:.4f}")
-        return {'loss': float(test_loss), 'accuracy': float(accuracy)}
-    
-    def predict_grid(self) -> np.ndarray:
-        """Classify full grid."""
-        if not self.model:
-            raise ValueError("Train first!")
-        if self.valid_mask_grid is None or self.valid_mask_flat is None:
-            raise ValueError("Prepare data before predicting the grid.")
-        
-        features = np.column_stack([
-            self.data_grids['soil_moisture'].flatten(),
-            self.data_grids['temperature'].flatten(),
-            self.data_grids['ndvi'].flatten(),  # Placeholder until real NDVI integration
-            self.data_grids['vpd'].flatten()
-        ])
-        
-        valid_flat = self.valid_mask_flat
-        pred_probs_flat = np.full(features.shape[0], np.nan, dtype=np.float32)
-        pred_probs_flat[valid_flat] = self.model.predict_proba(features[valid_flat])[:, 1]
-        
-        grid_shape = self.data_grids['soil_moisture'].shape
-        pred_class = np.full(grid_shape, -1, dtype=np.int8)
-        valid_classes = (pred_probs_flat[valid_flat] > 0.5).astype(np.int8)
-        pred_class_flat = pred_class.flatten()
-        pred_class_flat[valid_flat] = valid_classes
-        pred_class = pred_class_flat.reshape(grid_shape)
-        
-        dry_count = int(np.sum(pred_class == 0))
-        wet_count = int(np.sum(pred_class == 1))
-        invalid_count = int(np.sum(pred_class < 0))
+
+        classification = np.full(soil.shape, -1, dtype=np.int8)
+        classification[self.valid_mask_grid] = 1
+        classification[self.valid_mask_grid & dry_mask] = 0
+
+        dry_count = int(np.sum(classification == 0))
+        wet_count = int(np.sum(classification == 1))
+        invalid_count = int(np.sum(classification < 0))
         print(f"Grid classified. Dry: {dry_count}, Wet: {wet_count}, No data: {invalid_count}")
-        return pred_class  # -1 denotes invalid/ocean cells
+        return classification
 
     def assess_risk(self, classification_grid: Optional[np.ndarray] = None) -> Dict[str, Any]:
         """
         Generate the risk layer and summary statistics.
 
         Args:
-            classification_grid: Optional cached prediction. If None, predict_grid() is invoked.
+            classification_grid: Optional cached classification. If None, classify_grid() is called.
 
         Returns:
-            Dict containing the risk_map and summary counts/percentages.
+            Dict with keys: risk_map, summary, stress_index.
         """
-        if not hasattr(self, "data_grids"):
-            raise ValueError("Prepare data before assessing risk.")
+        if not hasattr(self, 'data_grids'):
+            raise ValueError("Call prepare_data() before assess_risk().")
         if classification_grid is None:
-            classification_grid = self.predict_grid()
+            classification_grid = self.classify_grid()
 
         risk_map, summary, stress_index = assess_risk_levels(self.data_grids, classification_grid, self.config)
         return {"risk_map": risk_map, "summary": summary, "stress_index": stress_index}

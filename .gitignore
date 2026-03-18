@@ -1,9 +1,10 @@
 __pycache__
 /.pytest_cache/
 .python-version
-AGENTS.md
 /tests/*
 /outputs/
 uv.lock
 *html
-/catboost_info/
+.claude/
+.markdownlint.json
+

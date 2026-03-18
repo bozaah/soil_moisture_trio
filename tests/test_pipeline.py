@@ -16,36 +16,29 @@ def _mock_real_data(with_nan: bool = False) -> dict:
         [[0.10, 0.40, np.nan],
          [0.20, 0.18, 0.50],
          [0.12, 0.22, 0.60]],
-        dtype=np.float32
+        dtype=np.float32,
     )
-    if with_nan:
-        soil[0, 0] = np.nan
     temperature = np.array(
         [[36.0, 30.0, np.nan],
          [32.0, 28.0, 22.0],
          [34.0, 27.0, 24.0]],
-        dtype=np.float32
+        dtype=np.float32,
     )
     vpd = np.array(
         [[35.0, 18.0, np.nan],
          [22.0, 15.0, 10.0],
          [28.0, 19.0, 11.0]],
-        dtype=np.float32
+        dtype=np.float32,
     )
-    ndvi = np.clip(1 - soil, 0, 1)
-    ndwi = np.zeros_like(soil)
-    fire_index = np.zeros_like(soil)
-    lats = np.linspace(-35, -33, soil.shape[0])
-    lons = np.linspace(115, 117, soil.shape[1])
     if with_nan:
+        soil[0, 0] = np.nan
         temperature[0, 0] = np.nan
         vpd[0, 0] = np.nan
+    lats = np.linspace(-35, -33, soil.shape[0])
+    lons = np.linspace(115, 117, soil.shape[1])
     return {
         'soil_moisture': soil,
         'temperature': temperature,
-        'ndvi': ndvi,
-        'ndwi': ndwi,
-        'fire_index': fire_index,
         'vpd': vpd,
         'lats': lats,
         'lons': lons,
@@ -66,47 +59,73 @@ def test_map_silo_variables_aliases_known_keys():
     np.testing.assert_allclose(mapped['vpd'], arrays['vp_deficit'])
 
 
-def test_pipeline_real_data_flow(monkeypatch):
-    """End-to-end sanity check using mocked real data."""
-    config = ClassifierConfig(epochs=2, batch_size=8, lr=0.01)
-    pipeline = DryWetClassifierPipeline(config)
-    monkeypatch.setattr(pipeline, "_load_all_real_data", lambda: _mock_real_data())
-    pipeline.prepare_data()
-    pipeline.train()
-    metrics = pipeline.evaluate()
-
-    assert 'loss' in metrics
-    assert 'accuracy' in metrics
-    assert 0.0 <= metrics['accuracy'] <= 1.0
-    assert metrics['loss'] >= 0.0
-
-    pred_map = pipeline.predict_grid()
-    target_shape = pipeline.data_grids['soil_moisture'].shape
-    assert pred_map.shape == target_shape
-    assert np.isin(pred_map[pred_map >= 0], [0, 1]).all()
-    assert np.any(pred_map < 0)
-
-
 def test_prepare_data_populates_expected_grids(monkeypatch):
-    pipeline = DryWetClassifierPipeline(ClassifierConfig(epochs=1, batch_size=4))
+    pipeline = DryWetClassifierPipeline(ClassifierConfig())
     monkeypatch.setattr(pipeline, "_load_all_real_data", lambda: _mock_real_data())
     pipeline.prepare_data()
 
-    required_keys = {'soil_moisture', 'temperature', 'ndvi', 'vpd', 'lats', 'lons'}
+    required_keys = {'soil_moisture', 'temperature', 'vpd', 'lats', 'lons'}
     assert required_keys.issubset(pipeline.data_grids.keys())
     assert 'time_metadata' in pipeline.data_grids
-    valid_cells = int(pipeline.valid_mask_grid.sum())
-    assert pipeline.X_train.shape[0] == int(0.8 * valid_cells)
-    assert pipeline.X_train.shape[0] + pipeline.X_test.shape[0] == valid_cells
+    assert pipeline.valid_mask_grid is not None
+    assert pipeline.valid_mask_grid.shape == pipeline.data_grids['soil_moisture'].shape
 
 
-def test_prepare_data_replaces_nan(monkeypatch):
-    pipeline = DryWetClassifierPipeline(ClassifierConfig(epochs=1, batch_size=4))
+def test_prepare_data_excludes_nan_cells(monkeypatch):
+    """NaN cells must be excluded from valid_mask_grid."""
+    pipeline = DryWetClassifierPipeline(ClassifierConfig())
     monkeypatch.setattr(pipeline, "_load_all_real_data", lambda: _mock_real_data(with_nan=True))
     pipeline.prepare_data()
 
-    assert not np.isnan(pipeline.X_train).any()
-    assert not np.isnan(pipeline.X_test).any()
+    # NaN cells should be False in valid_mask_grid
+    soil = pipeline.data_grids['soil_moisture']
+    assert not pipeline.valid_mask_grid[np.isnan(soil)].any()
+
+
+def test_classify_grid_shape_and_values(monkeypatch):
+    """classify_grid must return correct shape with only -1, 0, 1 values."""
+    pipeline = DryWetClassifierPipeline(ClassifierConfig())
+    monkeypatch.setattr(pipeline, "_load_all_real_data", lambda: _mock_real_data())
+    pipeline.prepare_data()
+    grid = pipeline.classify_grid()
+
+    assert grid.shape == pipeline.data_grids['soil_moisture'].shape
+    assert np.isin(grid, [-1, 0, 1]).all()
+    # NaN input cells must be -1
+    nan_mask = ~pipeline.valid_mask_grid
+    assert (grid[nan_mask] == -1).all()
+
+
+def test_classify_grid_dry_rule(monkeypatch):
+    """Cells meeting dry rule must be 0; others must be 1 (when valid)."""
+    config = ClassifierConfig(moisture_threshold=0.25, temp_threshold=30.0, vpd_threshold=20.0)
+    pipeline = DryWetClassifierPipeline(config)
+    monkeypatch.setattr(pipeline, "_load_all_real_data", lambda: _mock_real_data())
+    pipeline.prepare_data()
+    grid = pipeline.classify_grid()
+
+    soil = pipeline.data_grids['soil_moisture']
+    temp = pipeline.data_grids['temperature']
+    vpd = pipeline.data_grids['vpd']
+    valid = pipeline.valid_mask_grid
+
+    expected_dry = valid & (soil < 0.25) & ((temp > 30.0) | (vpd > 20.0))
+    assert (grid[expected_dry] == 0).all()
+    assert (grid[valid & ~expected_dry] == 1).all()
+
+
+def test_pipeline_assess_risk_returns_summary(monkeypatch):
+    pipeline = DryWetClassifierPipeline(ClassifierConfig())
+    monkeypatch.setattr(pipeline, "_load_all_real_data", lambda: _mock_real_data())
+    pipeline.prepare_data()
+
+    output = pipeline.assess_risk()
+    assert 'risk_map' in output
+    assert 'summary' in output
+    assert 'stress_index' in output
+    assert output['risk_map'].shape == pipeline.data_grids['soil_moisture'].shape
+    assert 'total_cells' in output['summary']
+    assert 'invalid' in output['summary']
 
 
 def test_assess_risk_levels_categorizes_cells():
@@ -121,8 +140,6 @@ def test_assess_risk_levels_categorizes_cells():
         critical_temp_threshold=35.0,
         critical_vpd_threshold=30.0,
         watch_margin=0.02,
-        epochs=1,
-        batch_size=4,
     )
     soil = np.array([[0.10, 0.22], [0.31, 0.26]])
     temp = np.array([[36.0, 34.0], [28.0, 29.0]])
@@ -135,20 +152,15 @@ def test_assess_risk_levels_categorizes_cells():
         config,
     )
 
-    # Derive expected labels from the returned continuous stress_index and the
-    # model's categorization thresholds to keep the test aligned with the
-    # implementation rather than hard-coding labels.
     expected = np.full(stress_index.shape, -1, dtype=np.int8)
     valid = classification >= 0
     expected[valid] = RiskLevel.LOW
     expected[(valid) & (stress_index >= 0.85)] = RiskLevel.CRITICAL
-    expected[(valid) & ~ (stress_index >= 0.85) & (stress_index >= 0.6)] = RiskLevel.ALERT
-    expected[(valid) & ~ (stress_index >= 0.6) & (stress_index >= 0.35)] = RiskLevel.WATCH
+    expected[(valid) & ~(stress_index >= 0.85) & (stress_index >= 0.6)] = RiskLevel.ALERT
+    expected[(valid) & ~(stress_index >= 0.6) & (stress_index >= 0.35)] = RiskLevel.WATCH
 
-    # Assert the produced risk_map matches the expected mapping
     np.testing.assert_array_equal(risk_map, expected)
 
-    # Check summary counts are internally consistent with the risk_map
     for level in RiskLevel:
         assert summary[level.name.lower()]['count'] == int(np.sum(risk_map == level))
     assert summary['total_cells']['count'] == risk_map.size
@@ -170,22 +182,6 @@ def test_assess_risk_levels_handles_invalid_cells():
     assert summary['invalid']['count'] == 2
     assert summary['valid_cells']['count'] == 2
     assert risk_map[0, 1] == -1
-
-
-def test_pipeline_assess_risk_returns_summary(monkeypatch):
-    config = ClassifierConfig(epochs=1, batch_size=8)
-    pipeline = DryWetClassifierPipeline(config)
-    monkeypatch.setattr(pipeline, "_load_all_real_data", lambda: _mock_real_data())
-    pipeline.prepare_data()
-    pipeline.train()
-
-    output = pipeline.assess_risk()
-    assert 'risk_map' in output
-    assert 'summary' in output
-    assert 'stress_index' in output
-    assert output['risk_map'].shape == pipeline.data_grids['soil_moisture'].shape
-    assert 'total_cells' in output['summary']
-    assert 'invalid' in output['summary']
 
 
 def test_save_risk_outputs_writes_files(tmp_path):
