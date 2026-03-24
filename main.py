@@ -30,7 +30,7 @@ def run_pipeline(
     # ------------------------------------------------------------------
     # 1. Configuration
     # ------------------------------------------------------------------
-    config_kwargs = {"moisture_threshold": 0.2}
+    config_kwargs = {}
     if year is not None:
         config_kwargs["year"] = year
     if start_date is not None:
@@ -69,10 +69,9 @@ def run_pipeline(
         print(f"Time window: {pipeline.time_metadata['time_start']} to {pipeline.time_metadata['time_end']}")
 
     # ------------------------------------------------------------------
-    # 3. Classify and assess risk
+    # 3. Assess risk
     # ------------------------------------------------------------------
-    pred_map = pipeline.classify_grid()
-    risk_report = pipeline.assess_risk(pred_map)
+    risk_report = pipeline.assess_risk()
     risk_map = risk_report["risk_map"]
     risk_summary = risk_report["summary"]
     stress_index = risk_report["stress_index"]

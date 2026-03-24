@@ -99,16 +99,14 @@ class DryWetClassifierPipeline:
         """Load a single variable from NetCDF and average over the requested time window."""
         print(f"Loading {var_name} from {file_path}...")
 
-        if file_path.startswith('s3://') or file_path.startswith('https://s3'):
-            os.environ['AWS_NO_SIGN_REQUEST'] = 'YES'
-            os.environ['AWS_REQUEST_PAYER'] = 'requester'
-            os.environ['GDAL_DISABLE_READDIR_ON_OPEN'] = 'EMPTY_DIR'
-            os.environ['GDAL_MAX_RAW_BLOCK_CACHE_SIZE'] = '200000000'
-            os.environ['GDAL_SWATH_SIZE'] = '200000000'
-            os.environ['VSI_CURL_CACHE_SIZE'] = '200000000'
-            os.environ['GDAL_SKIP'] = 'netCDF'
-
-        if 'thredds.nci.org.au' in file_path:
+        is_remote_netcdf = (
+            'thredds.nci.org.au' in file_path
+            or file_path.startswith('https://s3')
+            or file_path.startswith('s3://')
+        )
+        if is_remote_netcdf:
+            if file_path.startswith('https://s3') or file_path.startswith('s3://'):
+                os.environ['AWS_NO_SIGN_REQUEST'] = 'YES'
             with xr.open_dataset(file_path) as ds:
                 data_array = ds[var_name]
                 time_meta = {}
@@ -146,7 +144,7 @@ class DryWetClassifierPipeline:
         """Load required grids via either NetCDF or the weather_tools SILO loader."""
         data_sources = {
             'soil_moisture': {
-                'pct_url': f'https://thredds.nci.org.au/thredds/dodsC/iu04/australian-water-outlook/historical/v1/AWRALv7/processed/values/day/sm_pct_{self.config.year}.nc',
+                'pct_url': f'https://thredds.nci.org.au/thredds/dodsC/iu04/australian-water-outlook/historical/v1/AWRALv7/processed/deciles/day/sm_pct_{self.config.year}.nc',
                 'pct_var': 'sm_pct',
             },
             'temperature': {
@@ -170,20 +168,21 @@ class DryWetClassifierPipeline:
                 original_max = float('nan')
 
             if np.isnan(original_max):
-                print("Loaded soil moisture product contains no finite values.")
+                print("Loaded soil moisture decile product contains no finite values.")
             elif original_max > 1.1:
+                # Unexpected: decile product should always be 0-1. Apply defensive conversion.
                 soil_moisture_data = soil_moisture_data / 100.0
-                print(f"Detected sm_pct in percent scale (max={original_max:.3f}); converted to fraction.")
+                print(f"WARNING: sm_pct decile unexpectedly in percent scale (max={original_max:.3f}); converted to 0-1.")
             else:
-                print(f"Detected sm_pct already in fraction (0-1) (max={original_max:.3f}); no conversion applied.")
+                print(f"sm_pct decile product confirmed 0-1 scale (max={original_max:.3f}).")
 
             with xr.open_dataset(pct_url) as ds:
                 lats = ds['latitude'].values
                 lons = ds['longitude'].values
         except Exception as exc:
             raise RuntimeError(
-                f"Failed to load preferred soil moisture percent product '{pct_url}': {exc}.\n"
-                "This pipeline requires the 'sm_pct' product (percent) for soil moisture."
+                f"Failed to load soil moisture decile product '{pct_url}': {exc}.\n"
+                "This pipeline requires the AWRAL 'sm_pct' decile product (percentile rank 0-1)."
             )
 
         time_metas = [soil_meta]
@@ -373,20 +372,18 @@ class DryWetClassifierPipeline:
         print(f"Grid classified. Dry: {dry_count}, Wet: {wet_count}, No data: {invalid_count}")
         return classification
 
-    def assess_risk(self, classification_grid: Optional[np.ndarray] = None) -> Dict[str, Any]:
+    def assess_risk(self) -> Dict[str, Any]:
         """
         Generate the risk layer and summary statistics.
 
-        Args:
-            classification_grid: Optional cached classification. If None, classify_grid() is called.
+        Uses valid_mask_grid (built by prepare_data) to identify land/data cells.
+        Risk levels are derived entirely from the stress index formula — see risk.py.
 
         Returns:
             Dict with keys: risk_map, summary, stress_index.
         """
-        if not hasattr(self, 'data_grids'):
+        if not hasattr(self, 'data_grids') or self.valid_mask_grid is None:
             raise ValueError("Call prepare_data() before assess_risk().")
-        if classification_grid is None:
-            classification_grid = self.classify_grid()
 
-        risk_map, summary, stress_index = assess_risk_levels(self.data_grids, classification_grid, self.config)
+        risk_map, summary, stress_index = assess_risk_levels(self.data_grids, self.valid_mask_grid, self.config)
         return {"risk_map": risk_map, "summary": summary, "stress_index": stress_index}

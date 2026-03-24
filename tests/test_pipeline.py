@@ -144,20 +144,19 @@ def test_assess_risk_levels_categorizes_cells():
     soil = np.array([[0.10, 0.22], [0.31, 0.26]])
     temp = np.array([[36.0, 34.0], [28.0, 29.0]])
     vpd = np.array([[35.0, 15.0], [10.0, 25.0]])
-    classification = np.array([[0, 0], [1, 1]])
+    valid_mask = np.array([[True, True], [True, True]])
 
     risk_map, summary, stress_index = assess_risk_levels(
         {'soil_moisture': soil, 'temperature': temp, 'vpd': vpd},
-        classification,
+        valid_mask,
         config,
     )
 
     expected = np.full(stress_index.shape, -1, dtype=np.int8)
-    valid = classification >= 0
-    expected[valid] = RiskLevel.LOW
-    expected[(valid) & (stress_index >= 0.85)] = RiskLevel.CRITICAL
-    expected[(valid) & ~(stress_index >= 0.85) & (stress_index >= 0.6)] = RiskLevel.ALERT
-    expected[(valid) & ~(stress_index >= 0.6) & (stress_index >= 0.35)] = RiskLevel.WATCH
+    expected[valid_mask] = RiskLevel.LOW
+    expected[valid_mask & (stress_index >= 0.85)] = RiskLevel.CRITICAL
+    expected[valid_mask & ~(stress_index >= 0.85) & (stress_index >= 0.6)] = RiskLevel.ALERT
+    expected[valid_mask & ~(stress_index >= 0.6) & (stress_index >= 0.35)] = RiskLevel.WATCH
 
     np.testing.assert_array_equal(risk_map, expected)
 
@@ -171,11 +170,11 @@ def test_assess_risk_levels_handles_invalid_cells():
     soil = np.array([[0.1, 0.3], [0.2, 0.4]])
     temp = np.array([[36.0, 20.0], [28.0, 22.0]])
     vpd = np.array([[35.0, 10.0], [15.0, 12.0]])
-    classification = np.array([[0, -1], [1, -1]])
+    valid_mask = np.array([[True, False], [True, False]])
 
     risk_map, summary, stress_index = assess_risk_levels(
         {'soil_moisture': soil, 'temperature': temp, 'vpd': vpd},
-        classification,
+        valid_mask,
         config,
     )
 

@@ -7,4 +7,5 @@ uv.lock
 *html
 .claude/
 .markdownlint.json
+data/*
 

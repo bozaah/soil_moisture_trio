@@ -37,13 +37,13 @@ RISK_COLORS = {
 # ---------------------------------------------------------------------
 # Validation Helper
 # ---------------------------------------------------------------------
-def _validate_shapes(data_grids: Dict[str, np.ndarray], classification_grid: np.ndarray) -> None:
-    """Ensure all required grids share the same shape."""
+def _validate_shapes(data_grids: Dict[str, np.ndarray], valid_mask: np.ndarray) -> None:
+    """Ensure all required grids share the same shape as the valid mask."""
     required = ['soil_moisture', 'temperature', 'vpd']
-    base_shape = classification_grid.shape
+    base_shape = valid_mask.shape
     for key in required:
         if data_grids[key].shape != base_shape:
-            raise ValueError(f"{key} grid shape {data_grids[key].shape} does not match classification grid {base_shape}.")
+            raise ValueError(f"{key} grid shape {data_grids[key].shape} does not match valid_mask shape {base_shape}.")
 
 
 # ---------------------------------------------------------------------
@@ -51,26 +51,28 @@ def _validate_shapes(data_grids: Dict[str, np.ndarray], classification_grid: np.
 # ---------------------------------------------------------------------
 def _compute_risk_map(
     data_grids: Dict[str, np.ndarray],
-    classification_grid: np.ndarray,
+    valid_mask: np.ndarray,
     config: ClassifierConfig
 ) -> np.ndarray:
     """
     Compute risk map using a physically-based dryness–stress index that combines:
-      - soil moisture deficit
+      - soil moisture deficit (percentile rank below moisture_threshold)
       - temperature stress
       - vapour pressure deficit stress
 
     The stress index (0–1) is weighted by each factor:
         dryness:  0.6 (primary)
-        temperature: 0.25
-        vpd: 0.15
+        vpd:      0.25
+        temperature: 0.15
+
+    Args:
+        valid_mask: boolean array marking land/data cells to include (False = ocean/NaN).
     """
     soil_moisture = data_grids['soil_moisture']
     temperature = data_grids['temperature']
     vpd = data_grids['vpd']
 
     risk_map = np.full(soil_moisture.shape, -1, dtype=np.int8)
-    valid_mask = classification_grid >= 0
     if not valid_mask.any():
         # also return a stress_index filled with NaNs when no valid cells
         stress_index = np.full(soil_moisture.shape, np.nan, dtype=float)
@@ -102,23 +104,27 @@ def _compute_risk_map(
 # ---------------------------------------------------------------------
 def assess_risk_levels(
     data_grids: Dict[str, np.ndarray],
-    classification_grid: np.ndarray,
+    valid_mask: np.ndarray,
     config: ClassifierConfig
 ) -> Tuple[np.ndarray, Dict[str, Dict[str, float]], np.ndarray]:
     """
     Derive a categorical risk layer from soil moisture, temperature, and VPD using
     a physically grounded dryness–stress model.
 
+    Args:
+        valid_mask: boolean array (lat, lon) — True for land/data cells, False for ocean/NaN.
+
     Returns:
         risk_map: np.ndarray of RiskLevel values per grid cell
         summary: Dict summarising cell counts and proportions per level
+        stress_index: continuous composite stress array (0–1, NaN for invalid cells)
     """
-    _validate_shapes(data_grids, classification_grid)
-    risk_map, stress_index = _compute_risk_map(data_grids, classification_grid, config)
+    _validate_shapes(data_grids, valid_mask)
+    risk_map, stress_index = _compute_risk_map(data_grids, valid_mask, config)
 
     total = risk_map.size
-    valid_mask = risk_map >= 0
-    total_valid = int(np.sum(valid_mask))
+    result_valid = risk_map >= 0
+    total_valid = int(np.sum(result_valid))
     invalid_count = total - total_valid
 
     summary: Dict[str, Dict[str, float]] = {}

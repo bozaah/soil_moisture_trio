@@ -7,16 +7,17 @@ from pydantic import BaseModel, Field
 
 class ClassifierConfig(BaseModel):
     # --- Dry/wet classification thresholds ---
-    moisture_threshold: float = Field(0.25, ge=0, le=1, description="Dry if soil moisture (fraction) < this")
+    # soil moisture values are AWRAL decile percentile ranks (0–1)
+    moisture_threshold: float = Field(0.30, ge=0, le=1, description="Dry if sm_pct percentile rank < this (Watch/Low boundary)")
     temp_threshold: float = Field(30.0, ge=0, description="High temperature threshold (°C)")
     vpd_threshold: float = Field(20.0, ge=0, description="High VPD threshold (hPa)")
 
-    # --- Risk level thresholds ---
-    severe_moisture_threshold: float = Field(0.10, ge=0, le=1, description="Critical dryness threshold")
+    # --- Risk level thresholds (percentile rank 0–1) ---
+    severe_moisture_threshold: float = Field(0.10, ge=0, le=1, description="Critical/Alert boundary (≤ 0.10 → Critical)")
     critical_temp_threshold: float = Field(40.0, ge=0, description="Critical heat threshold (°C)")
     critical_vpd_threshold: float = Field(32.0, ge=0, description="Critical VPD threshold (hPa)")
-    watch_margin: float = Field(0.08, ge=0, description="Moisture margin above dryness threshold for Watch state")
-    alert_moisture_threshold: float = Field(0.18, ge=0, le=1, description="Moisture threshold for Alert level")
+    watch_margin: float = Field(0.10, ge=0, description="Alert/Watch boundary percentile rank (≤ 0.10 → Critical)")
+    alert_moisture_threshold: float = Field(0.20, ge=0, le=1, description="Watch/Alert boundary (0.10–0.20 → Alert)")
     alert_temp_threshold: float = Field(32.0, ge=0, description="Temperature threshold for Alert level (°C)")
     alert_vpd_threshold: float = Field(24.0, ge=0, description="VPD threshold for Alert level (hPa)")
 
