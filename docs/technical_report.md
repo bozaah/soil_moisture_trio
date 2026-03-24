@@ -1,174 +1,214 @@
-## Soil Moisture Trio — Technical Report
+# Soil Moisture Trio — Technical Report
 
-Date: 2025-11-12
-
-This report summarises the data sources, thresholds and heuristics, model design (CatBoost), and outputs produced by the Soil Moisture Trio pipeline. It is intended to be a concise, technical reference for reviewers and engineers integrating or validating the system.
-
----
-
-## 1) Data sources
-
-- AWRAL soil moisture (`sm_pct`)
-  - Source: NCI THREDDS OPeNDAP/NetCDF (example URL pattern used by the pipeline):
-    `https://thredds.nci.org.au/thredds/dodsC/iu04/australian-water-outlook/historical/v1/AWRALv7/processed/values/day/sm_pct_{YEAR}.nc`
-  - Variable name: `sm_pct`.
-  - Notes: some deployments of `sm_pct` are encoded as percents (0–100) and some as fractions (0–1). The pipeline detects units heuristically (see §2) and uses volumetric fraction (0–1) internally.
-
-- SILO variables (via `weather_tools` COG loader or NetCDF fallback)
-  - Max temperature (tmax / `max_temp`) — used as a heat stress proxy.
-  - Vapour pressure deficit (VPD / `vp_deficit`) — used as an atmospheric dryness stressor. Units: hPa.
-  - Sources: SILO on AWS S3 (NetCDF) or COG tiles via the `weather_tools` loader for bounding-box subsetting.
-
-- Other variables
-  - NDVI, NDWI, and Fire Index are currently synthetic/placeholders in the repo and not supplied from real feeds yet.
-
-Data-handling notes
-- The loader will average over a selected time window (by `start_date`/`end_date` or default to the dataset's time slice) and return gridded arrays aligned to the user-specified bounding box.
-- The pipeline retains a valid/no-data mask so outputs preserve `-1` for invalid/ocean cells.
+**Version:** Sprint 6 | **Date:** 2026-03-23
+**Status:** Operational — decile-calibrated, rule-based risk classification
 
 ---
 
-## 2) Thresholds & heuristics
+## Purpose
 
-Canonical internal units
-- The pipeline operates on soil moisture as a bucket i.e., as fraction of fulness (0–1). To avoid silent unit errors, the loader performs a simple detection: if the loaded `sm_pct` grid has a maximum value > 1.1, it is treated as a percent product and divided by 100; otherwise it is assumed to already be a fraction. A message is emitted on load.
+This report describes the data sources, scientific methodology, classification thresholds, and outputs of the Soil Moisture Trio pipeline. It is written for soil and climate scientists and DPIRD policy/decision-makers. Engineering implementation detail is included only where it is necessary to understand what the system is doing and why.
 
-Observed sample (2024, single-window)
-- Example quantiles observed for a 2024 window (flattened grid):
+---
+
+## 1. Data Sources
+
+### 1.1 Soil Moisture — AWRAL Decile Product
+
+The pipeline uses the Australian Water Resources Assessment Landscape model (**AWRA-L v7**) soil moisture percentile rank product, provided by the Bureau of Meteorology through NCI THREDDS.
+
+- **What it measures:** Total rootzone soil moisture integrated over the 0–100 cm profile, expressed as a **percentile rank** (0–1) relative to the full historical record for that location and day-of-year.
+- **Historical baseline:** 1911 to present (~115 years).
+- **Spatial resolution:** 0.05° (~5 km) across Australia.
+- **Temporal resolution:** Daily (operational runs); monthly (calibration baseline).
+- **URL pattern (daily, operational):**
+  `https://thredds.nci.org.au/thredds/dodsC/iu04/australian-water-outlook/historical/v1/AWRALv7/processed/deciles/day/sm_pct_{YEAR}.nc`
+- **Variable name:** `sm_pct`
+- **Units:** `relative` — confirmed as percentile rank 0–1 (OPeNDAP probe, 2026-03-23).
+
+> **Why percentile rank rather than raw soil moisture?**
+> Raw AWRA-L soil moisture values (volumetric fraction) vary enormously across the landscape — sandy coastal soils in the south-west have a very different absolute wetness range than clay-rich soils in the Pilbara or the Kimberley. A threshold like "soil moisture < 0.10 is dry" may correctly identify dry conditions in one soil type while misclassifying another. The percentile rank removes this spatial heterogeneity: a rank of 0.10 always means the soil is drier than 90% of the historical observations **at that specific location and time of year**. Thresholds applied to percentile ranks therefore have a consistent climatological meaning everywhere in the domain.
+
+### 1.2 Temperature and Vapour Pressure Deficit — SILO
+
+Heat stress and atmospheric dryness are sourced from the SILO climate dataset (Bureau of Meteorology / Queensland Department of Environment), accessed via the `weather_tools` COG loader (primary) or SILO NetCDF on AWS S3 (fallback).
+
+| Variable | SILO name | Internal name | Units | Role |
+|---|---|---|---|---|
+| Daily maximum temperature | `max_temp` | `temperature` | °C | Heat stress |
+| Vapour pressure deficit | `vp_deficit` | `vpd` | hPa | Atmospheric dryness |
+
+Values are averaged over the selected time window and spatially aligned to the AWRA-L grid.
+
+### 1.3 Calibration Baseline Dataset
+
+A WA monthly decile subset covering the full historical record has been downloaded for calibration and diagnostic use:
+
+- **File:** `data/awral_decile_sm_pct_WA_monthly.nc`
+- **Coverage:** Western Australia (lat −35° to −13°, lon 112° to 129°)
+- **Dimensions:** 1,382 months × 441 latitude × 341 longitude cells (~831 MB)
+- **Period:** January 1911 – February 2026
+
+---
+
+## 2. Classification Thresholds and Scientific Rationale
+
+### 2.1 Risk Categories
+
+The pipeline assigns each grid cell to one of four drought risk categories based on its soil moisture percentile rank:
+
+| Percentile rank | Category | Interpretation |
+|---|---|---|
+| ≤ 0.10 | **Critical** | Soil moisture is at or below the 10th percentile — conditions as dry or drier than 90% of historical observations for this location and season. Consistent with severe drought. |
+| 0.10 – 0.20 | **Alert** | 10th to 20th percentile. Significant drying episode; below what is typical for the season. Likely to affect pasture recovery, crop viability, and stock water. |
+| 0.20 – 0.30 | **Watch** | 20th to 30th percentile. Drier than roughly two-thirds of historical years. Warrants monitoring, particularly if conditions persist. |
+| > 0.30 | **Low** | Above the 30th percentile. Within or above the historically normal range. No immediate drought concern. |
+
+These thresholds are set in `ClassifierConfig`:
+
+- `moisture_threshold = 0.30` (Watch/Low boundary)
+- `alert_moisture_threshold = 0.20` (Alert/Watch boundary)
+- `severe_moisture_threshold = 0.10` (Critical/Alert boundary)
+
+### 2.2 Why These Boundaries?
+
+The 10th, 20th, and 30th percentiles are standard reference points in Australian drought monitoring (consistent with the Bureau of Meteorology's decile-based drought classification). Defining categories in percentile space means:
+
+- A cell classified as Critical in January in the wheatbelt is experiencing the same *relative* severity of dryness as a Critical cell in July in the Kimberley — even though their absolute soil water contents differ greatly.
+- The proportion of the landscape in each category is stable over long climatological averages (by construction, ~10%, ~10%, ~10%, ~70% on average).
+- Short-term departures from those proportions indicate genuine anomalies.
+
+### 2.3 Before and After Calibration
+
+Switching from raw volumetric fraction to the percentile rank product eliminated a systematic over-classification bias. The table below shows the January–March 2026 WA results under both approaches:
+
+| Category | Raw sm_pct (old) | Decile rank (current) |
+|---|---|---|
+| Critical | 47.1% | 1.1% |
+| Alert | 29.5% | 6.8% |
+| Watch | 9.4% | 12.3% |
+| Low | 14.1% | 79.9% |
+
+With the raw product, almost half of WA was classified Critical in summer — not because conditions were genuinely extreme, but because the absolute threshold (0.25 volumetric fraction) sat above most of the observed distribution. The decile product produces results consistent with climatological expectation: Critical and Alert conditions affect a small fraction of the landscape except during genuine drought events.
+
+As a sanity check: the historical mean percentile rank across all Jan–Mar months (1911–2026) is exactly **0.500** — confirming the decile product is correctly centred on its long-run median.
+
+---
+
+## 3. Stress Index and Risk Map
+
+### 3.1 Why a Stress Index?
+
+Drought impact is rarely driven by soil moisture alone. A cell with low soil moisture but moderate temperature and low atmospheric demand may recover quickly; the same soil moisture under extreme heat and high VPD represents a much more severe agricultural and ecological stress. The pipeline therefore combines soil moisture, temperature, and VPD into a single composite **stress index** (0–1) before assigning risk levels.
+
+### 3.2 Formula
 
 ```
-  0%      25%      50%      75%     100%
-0.000027 0.011726 0.052861 0.180270 1.000000
+dryness_factor   = clip((moisture_threshold − sm_pct_rank) / moisture_threshold, 0, 1)
+temp_factor      = clip(temperature / critical_temp_threshold, 0, 1)
+vpd_factor       = clip(vpd / critical_vpd_threshold, 0, 1)
+
+stress_index = 0.60 × dryness_factor
+             + 0.25 × vpd_factor
+             + 0.15 × temp_factor
 ```
 
-Implication: many cells have very small volumetric fraction values; applying large absolute thresholds (e.g., 0.25) will classify most of the grid as dry. Use percentile-based thresholds or much smaller absolute thresholds appropriate to the product distribution.
+**What each component means:**
 
-Current configured thresholds (kept for compatibility)
-- `moisture_threshold`: 0.25 (dry if soil moisture < this). NOTE: may be large for some `sm_pct` realizations; recommended adjustment below.
-- `temp_threshold`: 30.0 (°C)
-- `vpd_threshold`: 20.0 (hPa)
-- `severe_moisture_threshold`: 0.10
-- `critical_temp_threshold`: 40.0 (°C)
-- `critical_vpd_threshold`: 32.0 (hPa)
-- `alert_moisture_threshold`: 0.18
+- **`dryness_factor`** measures how far below the Watch/Low threshold (0.30 percentile rank) the current soil moisture is, expressed as a proportion of that threshold. A cell at the 30th percentile has dryness_factor = 0 (no soil water stress). A cell at the 10th percentile has dryness_factor ≈ 0.67. A cell at or below the 0th percentile has dryness_factor = 1.0 (maximum). Crucially, because `sm_pct_rank` is already a percentile rank, the dryness_factor is measuring *probabilistic* deficit — how anomalous the current soil moisture is relative to the historical distribution at that location — rather than a raw physical water volume. This is a more meaningful input to a stress calculation than volumetric fraction because it captures the climatological context.
 
-Recommended threshold strategy
-- Medium-term (recommended): compute thresholds from a multi-year climatology for the region/season, e.g.:
-- `moisture_threshold` = 25th percentile of the climatology
-- `severe_moisture_threshold` = 10th percentile
-- `alert_moisture_threshold` = 33rd percentile or `moisture_threshold + margin`
+- **`temp_factor`** normalises temperature against the critical heat threshold (40°C). At 40°C, temp_factor = 1.0; below that it scales linearly. It represents the fraction of maximum heat stress being experienced.
 
-Autodetection and safe defaults
-- The loader prints a summary of the original maximum and whether a conversion occurred. This is a useful run-time sanity check before interpreting diagnostics.
+- **`vpd_factor`** normalises vapour pressure deficit against a critical VPD threshold (32 hPa). High VPD accelerates plant water loss and intensifies moisture stress independently of soil water content.
 
----
+**Weights:** Soil moisture deficit is the primary driver (60%), with atmospheric demand (VPD, 25%) and heat (15%) as amplifiers. This weighting reflects agronomic evidence that soil water depletion is the proximate cause of crop and pasture stress, while heat and VPD determine the rate of loss and the plant's ability to cope.
 
-## 3) CatBoost
+### 3.3 Risk Level Assignment
 
-Why CatBoost
-- CatBoost is a gradient-boosted decision-tree implementation that handles categorical variables (not used presently), provides robust default behaviour, and requires minimal preprocessing for tabular data. It is fast, deterministic when configured, and well-suited for small-to-medium tabular problems like grid-sample classification.
+Cells are assigned to risk levels based on their stress index value:
 
-Input features
-- The model is trained per-grid-cell on flattened samples with features:
-  1. soil_moisture (fraction)
-  2. temperature (max daily / averaged window)
-  3. NDVI (placeholder synthetic values currently)
-  4. VPD
+| Stress index | Risk level |
+|---|---|
+| ≥ 0.85 | **Critical** |
+| 0.60 – 0.85 | **Alert** |
+| 0.35 – 0.60 | **Watch** |
+| < 0.35 | **Low** |
 
-Labels
-- Rule-based label assignment at prepare-time:
-  - Dry (0) if soil_moisture < moisture_threshold AND (temperature > temp_threshold OR vpd > vpd_threshold)
-  - Wet (1) otherwise
+Cells with no data (ocean, areas outside domain, or missing inputs) are assigned `-1` and excluded from all calculations and summaries.
 
-Preprocessing
-- NaNs are masked out of the valid cell set (cells with NaN in any of the critical inputs are excluded). The valid mask is stored so predictions preserve NoData cells.
-- Features are flattened and stacked into an (N, 4) array. No further scaling is applied because tree ensembles are scale-invariant.
+### 3.4 Valid Cell Masking
 
-Training procedure
-- Model: CatBoostClassifier
-- Default hyperparameters (in `ClassifierConfig`):
-  - iterations/epochs: 30 (overridable via `catboost_iterations`)
-  - depth: 6
-  - learning_rate: 0.01 (or `catboost_learning_rate` when provided)
-- Train/validation split: an 80/20 split is used on the flattened samples (first 80% train, last 20% eval). This is a pragmatic default for quick runs; for more rigorous experiments use k-fold CV or hold-out by location/time.
-- Metrics reported: log-loss and classification accuracy on the held-out set.
-
-Why the rule-based labels?
-- The pipeline’s labels are generated by a domain-informed rule to provide an explainable target for the model. This lets CatBoost learn residual structure beyond the binary rubric and produce probabilistic outputs that can be post-processed.
-
-Model outputs
-- The classifier produces per-sample probabilities for the positive class (wet). These are remapped back onto the full grid (invalid cells remain -1) and used for diagnostic or optional downstream tasks.
-
-Reproducibility & performance
-- For reproducibility, seed the CatBoost RNG and pin the environment where necessary. For performance, tune `iterations`, `depth`, and `learning_rate` for dataset size and desired latency.
+The valid cell mask is built once during data loading (`prepare_data()`): a cell is valid if and only if all three inputs — soil moisture, temperature, and VPD — contain finite values. Ocean and missing-data cells are excluded at this stage and carry a sentinel value of `-1` through all outputs. No imputation is performed.
 
 ---
 
-## 4) Outputs
+## 4. Outputs
 
-- Categorical risk map (NetCDF)
-  - Produced by `save_risk_outputs()`; stored as a NetCDF with a `risk_level` 2D variable and latitude/longitude coordinates.
-  - Risk levels use the `RiskLevel` IntEnum (LOW=0, WATCH=1, ALERT=2, CRITICAL=3). Invalid/no-data cells are encoded as `-1`.
+### 4.1 Risk Map (NetCDF)
 
-- Summary JSON
-  - A compact JSON summary containing counts and percentages per risk band plus time_metadata.
+A 2D grid at AWRA-L resolution (0.05°) with each cell assigned an integer risk level (−1 = no data, 0 = Low, 1 = Watch, 2 = Alert, 3 = Critical). Latitude/longitude coordinates are retained. File includes a JSON-encoded summary in the global attributes and the time window metadata.
 
-- PNG visual outputs
-  - Two-panel PNG created by `save_risk_plot()`:
-    - Left: categorical risk map
-    - Right: continuous dryness/stress index (0–1)
-  - Diagnostics PNG created by `plot_dryness_diagnostics()` (histogram + scatter):
-    - Histogram of the continuous `stress_index` distribution.
-    - Scatter: Soil Moisture (x) vs VPD (hPa) (y), colored by `stress_index`.
+### 4.2 Summary JSON
 
-- Interactive Folium map (HTML)
-  - Optional interactive output built by `visualize.create_interactive_map()`; consumes the risk map and summary and creates an HTML file for browser inspection.
+Counts and proportions of cells in each risk category, plus time window metadata. Intended for tabular reporting and integration with decision-support dashboards.
 
-Downstream/decision-support considerations
-- The `stress_index` is a continuous composite (0–1) combining soil moisture deficit, temperature factor, and VPD factor. This is useful for thresholding, risk aggregation, and time-series analysis.
-- For operational decision support, prefer percentile or climatology-derived thresholds over fixed absolute thresholds to avoid bias from sensor/unit differences.
+### 4.3 PNG Outputs
+
+Two figures are produced:
+
+- **Risk map figure:** Side-by-side categorical risk map (colour-coded by level) and continuous stress index map (0–1 gradient). The stress index panel shows the intensity of conditions within each category.
+- **Diagnostic figure:** Histogram of the stress index distribution and a soil moisture vs VPD scatter plot coloured by stress index, for quality-checking the run.
+
+### 4.4 Interactive Map (optional)
+
+A Folium HTML map with clickable cells showing risk level and coordinates, for field-scale exploration.
 
 ---
 
-## Data contract (short)
+## 5. Spatial Domain and Operational Use
 
-- Inputs:
-  - `sm_pct` grid: 2D or 3D NetCDF with (time, lat, lon). After averaging over time the pipeline expects a 2D array with shape (lat, lon). Values: fraction 0–1 (loader will convert if it detects percent encoding).
-  - `max_temp` grid: same shape, units °C.
-  - `vp_deficit` grid: same shape, units hPa.
-
-- Outputs:
-  - `risk_map`: int8 array (lat, lon) with values -1, 0..3
-  - `stress_index`: float array (lat, lon), range 0–1 (NaN for invalid cells)
-  - JSON summary and NetCDF files, plus PNG/HTML visual artifacts
-
----
-
-## Recommended next steps (engineering)
-
-1. Add unit tests that assert loader conversion behaviour for edge cases.
-2. Add an automated threshold-calibration routine (CLI helper) that computes percentiles for a selected multi-year baseline.
-3. Replace print statements with `logging` at INFO level for production readiness and better CI clarity.
-4. Add integration tests that mock remote reads and validate the full pipeline end-to-end for a small bounding box.
-
----
-
-## Example run
-Use the project `uv` toolchain to run a short window for testing:
+The default spatial domain covers all of Australia. For Western Australia operational runs, the following bounds are recommended to avoid unnecessary processing of the eastern states:
 
 ```bash
 uv run python main.py \
-  --year 2025 \
-  --start-date 2025-10-01 \
-  --end-date 2025-10-15 \
-  --risk-output-prefix outputs/risk_layer_2025oct_WA \
-  --risk-plot-path outputs/risk_layer_2025oct_WA.png \
+  --year 2026 \
+  --start-date 2026-01-01 \
+  --end-date 2026-03-15 \
+  --risk-output-prefix outputs/risk_2026_jan-mar_WA \
+  --risk-plot-path outputs/risk_2026_jan-mar_WA.png \
   --silo-variable max_temp \
   --silo-variable vp_deficit \
-  --silo-cache-dir /tmp/silo_cache \
-  --silo-cache-max-mb 200 \
-  --min-lat -35 \
-  --max-lat -13 \
-  --min-lon 112 \
-  --max-lon 129
+  --min-lat -35 --max-lat -13 \
+  --min-lon 112 --max-lon 129
 ```
+
+Estimated run time for a WA window: ~5–10 minutes depending on SILO cache state (cached runs are substantially faster).
+
+---
+
+## 6. Known Limitations and Future Work
+
+| Item | Description | Priority |
+|---|---|---|
+| Stress index weights hardcoded | The 0.60/0.25/0.15 weights are not yet exposed as configurable parameters. Adjustment requires modifying `risk.py`. | Medium |
+| No temporal trend analysis | Each run produces a snapshot. Multi-period trend comparison (drying trajectories, persistent hotspots) is not yet implemented. | Future |
+| No spatial aggregation | Risk map is cell-level only. Aggregation to NRM regions, catchments, or farm units would support decision-support use. | Future |
+| Logging | Pipeline uses `print()` for status messages. Replacing with structured `logging` would improve production readiness. | Low |
+
+---
+
+## 7. Data Contract (Summary)
+
+| Input | Source | Units | Notes |
+|---|---|---|---|
+| `sm_pct` | AWRA-L v7 decile, NCI THREDDS | percentile rank 0–1 | Daily per year; averaged over selected window |
+| `max_temp` | SILO | °C | Daily; averaged over window |
+| `vp_deficit` | SILO | hPa | Daily; averaged over window |
+
+| Output | Format | Description |
+|---|---|---|
+| `risk_map` | int8 array (lat, lon) | −1 = no data; 0 = Low; 1 = Watch; 2 = Alert; 3 = Critical |
+| `stress_index` | float array (lat, lon) | Continuous 0–1; NaN for invalid cells |
+| NetCDF | `.nc` | Risk map with coordinates and metadata |
+| JSON | `.json` | Cell counts, percentages, time window |
+| PNG | `.png` | Risk map + stress index + diagnostics |

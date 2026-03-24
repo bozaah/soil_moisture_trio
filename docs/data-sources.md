@@ -1,22 +1,28 @@
 # Data Sources
 
-## AWRAL Soil Moisture (`sm_pct`)
+## AWRAL Soil Moisture — Decile Product (`sm_pct`)
 
 - **Source:** NCI THREDDS OPeNDAP
-- **URL pattern:** `https://thredds.nci.org.au/thredds/dodsC/iu04/australian-water-outlook/historical/v1/AWRALv7/processed/values/day/sm_pct_{YEAR}.nc`
-- **Variable:** `sm_pct`
-- **Native units:** Observed to vary by year — see table below
-- **Pipeline handling:** Loader checks `max > 1.1`; if true, divides by 100. Internal units are always fraction 0–1.
+- **Operational URL (daily, per year):** `https://thredds.nci.org.au/thredds/dodsC/iu04/australian-water-outlook/historical/v1/AWRALv7/processed/deciles/day/sm_pct_{YEAR}.nc`
+- **Calibration URL (monthly, 1911–2026):** `https://thredds.nci.org.au/thredds/dodsC/iu04/australian-water-outlook/historical/v1/AWRALv7/processed/deciles/month/sm_pct.nc`
+- **Variable:** `sm_pct` (confirmed via OPeNDAP probe 2026-03-23)
+- **Units:** `relative` — percentile rank 0–1, calibrated against the full 1911–present historical record for each location and day-of-year
+- **Pipeline handling:** No unit conversion needed (always 0–1). A defensive `max > 1.1` check is retained; it will warn if triggered but should never fire on the decile product.
 
-| Year | Observed scale | Conversion applied |
+| Product | Dimensions | Size (full Australia) |
 |---|---|---|
-| 2025 | 0–100 (percent) | ÷ 100 |
-| 2026 | 0–1 (fraction) | None |
+| Daily decile (one year) | (366, 681, 841) | ~838 MB |
+| Monthly decile (1911–2026) | (1382, 681, 841) | ~3 GB |
+| Monthly decile — WA subset | (1382, 441, 341) | ~831 MB |
 
-A message is printed on load indicating whether conversion occurred. Verify on each new year.
+WA calibration baseline downloaded to `data/awral_decile_sm_pct_WA_monthly.nc` (download: ~5.3 min via OPeNDAP decade-chunked).
 
 - **Required:** Yes. Pipeline raises `RuntimeError` if `sm_pct` load fails.
 - **Dimensions:** `(time, latitude, longitude)` → averaged over requested window → 2D `(lat, lon)`
+
+### Migration note (Sprint 5 → Sprint 6)
+
+Previously used `processed/values/day/sm_pct_{YEAR}.nc` (raw volumetric fraction, units varied by year). Switched to `processed/deciles/day/sm_pct_{YEAR}.nc` to resolve B1 (over-classification) and B3 (calibration). The raw-values URL unit table (2025: 0–100, 2026: 0–1) is no longer relevant.
 
 ## SILO Variables
 

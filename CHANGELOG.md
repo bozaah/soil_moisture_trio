@@ -4,6 +4,37 @@ All notable changes per sprint/iteration. Format: `## [sprint] YYYY-MM-DD — Ti
 
 ---
 
+## [Sprint 6] 2026-03-23 — Decile calibration: switch to AWRAL percentile rank product
+
+### Changed
+
+- `pipeline.py` — swapped AWRAL soil moisture URL from `processed/values/day/sm_pct_{year}.nc` to `processed/deciles/day/sm_pct_{year}.nc`; updated load messages to reflect decile product; retained defensive `max > 1.1` check (now warns rather than silently converting)
+- `config.py` — `moisture_threshold` 0.25 → 0.30 (Watch/Low boundary in percentile rank); `alert_moisture_threshold` 0.18 → 0.20 (Alert/Watch boundary); `watch_margin` 0.08 → 0.10; updated field descriptions to say "percentile rank" throughout
+- `main.py` — removed hardcoded `moisture_threshold=0.2` override; config default now applies
+- `docs/thresholds.md` — rewritten for decile product; B1/B3 marked resolved; Jan–Mar 2026 calibration stats included
+- `docs/data-sources.md` — AWRAL section updated with decile URL, full product table, migration note
+- `docs/backlog.md` — B1 and B3 marked resolved
+- `risk.py` — `_compute_risk_map()` and `assess_risk_levels()` now accept `valid_mask` (boolean array) instead of `classification_grid`; `pipeline.assess_risk()` uses `valid_mask_grid` directly — `classify_grid()` is no longer called in the main pipeline flow (retained as a standalone diagnostic utility)
+- `main.py` — removed `pipeline.classify_grid()` call; `assess_risk()` now takes no arguments
+- `docs/technical_report.md` — full rewrite for scientist/policy-maker audience; documents decile methodology, stress index formula with probabilistic dryness interpretation, before/after calibration table, and all outputs
+
+### Added
+
+- `data/awral_decile_sm_pct_WA_monthly.nc` — WA monthly decile subset (1911–2026, 441×341, 1382 months, ~831 MB) downloaded via OPeNDAP decade-chunked in 5.3 min
+- `outputs/decile_calibration_jan-mar-2026.png` — exploratory calibration plots (mean rank map, category map, distribution histogram)
+- `sessions/2026-03-23-decile-calibration.md` — sprint notes
+
+### Resolved
+
+- **B1** — `moisture_threshold=0.25` over-classifying dry cells. The decile product is spatially and seasonally normalised by construction; `moisture_threshold=0.30` now means the true 30th percentile everywhere.
+- **B3** — Calibration helper. Decile product *is* the calibration; no separate step needed.
+
+### Verified
+
+Step 0 OPeNDAP probe confirmed variable name is `sm_pct` (units: `relative`, shape `(366, 681, 841)` for 2024 daily). Jan–Mar 2026 WA calibration: Critical 1.1%, Alert 6.8%, Watch 12.3%, Low 79.9% — compared to 47.1%/29.5%/9.4%/14.1% with old raw product. Historical Jan–Mar mean rank = 0.500 (confirms decile centred on median). 11 unit tests pass.
+
+---
+
 ## [Sprint 4] 2026-03-18 — Remove CatBoost; rule-based classifier
 
 ### Changed

@@ -6,13 +6,9 @@ Items are grouped by theme. See `CHANGELOG.md` for what was done each sprint.
 
 ## High Priority (scientific correctness)
 
-- **B1** — Lower `moisture_threshold` or implement percentile-based calibration. The default 0.25 (and `main.py`'s hardcoded 0.2) labels >75% of Australian cells as "dry" given AWRAL `sm_pct` distributions. See `docs/thresholds.md`.
+- ~~**B1**~~ ✅ **RESOLVED (Sprint 6)** — Switched pipeline from raw `sm_pct` (values/day) to AWRAL percentile rank (deciles/day). `moisture_threshold=0.30` now maps to the true 30th percentile for each location/season. Jan–Mar 2026 WA: Critical 1.1%, Alert 6.8%, Watch 12.3%, Low 79.9% (was Critical 47.1% with old raw product). See `docs/thresholds.md`.
 
-- **B3** — Implement automated threshold-calibration helper:
-  - Loads multi-year AWRAL baseline for a region/season
-  - Computes 10th, 25th, 50th percentile of `sm_pct`
-  - Writes suggested defaults to a config file
-  - Expose as a CLI command (e.g., `uv run python main.py calibrate --years 2010-2020`)
+- ~~**B3**~~ ✅ **RESOLVED (Sprint 6)** — Decile product is the calibration. No separate helper needed; percentile rank thresholds (≤0.10 Critical, 0.10–0.20 Alert, 0.20–0.30 Watch, ≥0.30 Low) have stable climatological meaning across all locations and seasons. Calibration baseline: `data/awral_decile_sm_pct_WA_monthly.nc` (1911–2026).
 
 ---
 

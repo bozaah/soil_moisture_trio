@@ -43,6 +43,7 @@ Python · xarray · rioxarray · pydantic · folium · scipy · `uv`
 - [sessions/2026-03-18-session-02.md](sessions/2026-03-18-session-02.md) — CatBoost removal decision
 - [sessions/2026-03-18_q2-wa-verification.md](sessions/2026-03-18_q2-wa-verification.md) — Q2 2025 WA run + regression checks
 - [sessions/2026-03-18_2026-ytd-run.md](sessions/2026-03-18_2026-ytd-run.md) — Jan–Mar 2026 WA run; AWRAL unit change noted; cache location documented
+- [sessions/2026-03-23-decile-calibration.md](sessions/2026-03-23-decile-calibration.md) — Sprint 6: switch to decile product; B1/B3 resolved; calibration baseline downloaded
 
 ## First Principles
 
