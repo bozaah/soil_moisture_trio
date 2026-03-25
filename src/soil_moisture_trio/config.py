@@ -29,6 +29,7 @@ class ClassifierConfig(BaseModel):
     max_lat: float = Field(-8.0, description="Maximum latitude (degrees)")
     min_lon: float = Field(110.0, description="Minimum longitude (degrees)")
     max_lon: float = Field(155.0, description="Maximum longitude (degrees)")
+    boundary_gpkg: Optional[Path] = Field(None, description="Path to a GeoPackage boundary file. When set, bbox is derived from its bounds (+0.1° buffer) and cells outside the polygon are masked.")
 
     # --- SILO loader ---
     silo_variables: List[str] = Field(

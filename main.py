@@ -13,6 +13,7 @@ def run_pipeline(
     output_dir: str | None = None,
     risk_output_prefix: str | None = None,
     risk_plot_path: str | None = None,
+    boundary_gpkg: str | None = None,
     year: int | None = None,
     start_date: str | None = None,
     end_date: str | None = None,
@@ -66,6 +67,8 @@ def run_pipeline(
         config_kwargs["min_lon"] = min_lon
     if max_lon is not None:
         config_kwargs["max_lon"] = max_lon
+    if boundary_gpkg is not None:
+        config_kwargs["boundary_gpkg"] = boundary_gpkg
 
     config = ClassifierConfig(**config_kwargs)
     pipeline = DryWetClassifierPipeline(config)
@@ -118,6 +121,7 @@ def run_pipeline(
             lons=pipeline.data_grids["lons"],
             output_path=risk_plot_path,
             time_metadata=pipeline.time_metadata,
+            boundary_gpkg=boundary_gpkg,
         )
         print(f"Risk PNG exported to {plot_path}")
 
@@ -165,6 +169,7 @@ if __name__ == "__main__":
     parser.add_argument("--max-lat", type=float, default=None)
     parser.add_argument("--min-lon", type=float, default=None)
     parser.add_argument("--max-lon", type=float, default=None)
+    parser.add_argument("--boundary-gpkg", default=None, help="Path to GeoPackage boundary file. Derives bbox automatically and masks cells outside the polygon.")
     parser.set_defaults(use_silo_cog_loader=None)
     args = parser.parse_args()
 
@@ -174,6 +179,7 @@ if __name__ == "__main__":
         output_dir=args.output_dir,
         risk_output_prefix=args.risk_output_prefix,
         risk_plot_path=args.risk_plot_path,
+        boundary_gpkg=args.boundary_gpkg,
         year=args.year,
         start_date=args.start_date,
         end_date=args.end_date,

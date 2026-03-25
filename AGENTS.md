@@ -37,6 +37,24 @@ Python · xarray · rioxarray · pydantic · jinja2 · folium · scipy · `uv`
 --silo-cache-dir ~/.cache/soil_moisture_trio/silo_swaz
 ```
 
+**Recommended SWAZ run** — use `--boundary-gpkg` instead of manual lat/lon bounds:
+
+```bash
+uv run python main.py \
+  --year 2026 \
+  --start-date 2026-03-01 \
+  --end-date 2026-03-23 \
+  --output-dir outputs/risk_2026_mar_SWAZ_boundary \
+  --risk-output-prefix risk_2026_mar_SWAZ_boundary \
+  --risk-plot-path risk_2026_mar_SWAZ_boundary.png \
+  --silo-variable max_temp \
+  --silo-variable vp_deficit \
+  --silo-cache-dir ~/.cache/soil_moisture_trio/silo_swaz \
+  --boundary-gpkg data/south_west_agricultural_boundary.gpkg
+```
+
+`--boundary-gpkg` derives the bbox automatically (+0.1° buffer) and masks cells outside the polygon. No need for `--min-lat/max-lat/min-lon/max-lon` when using this flag.
+
 **Output subdirectory convention** — use `--output-dir` to keep all run files together:
 
 ```bash
@@ -70,6 +88,7 @@ All outputs (`.nc`, `_summary.json`, risk PNG, `stress_diagnostics.png`) land in
 - [sessions/2026-03-23-decile-calibration.md](sessions/2026-03-23-decile-calibration.md) — Sprint 6: switch to decile product; B1/B3 resolved; calibration baseline downloaded
 - [sessions/2026-03-25-sprint7-persistent-cache-bulletin.md](sessions/2026-03-25-sprint7-persistent-cache-bulletin.md) — Sprint 7: persistent cache, bulletin template, moisture_threshold recalibration
 - [sessions/2026-03-25-sprint8-plot-output-fixes.md](sessions/2026-03-25-sprint8-plot-output-fixes.md) — Sprint 8: bulletin PNG path fix, south y-axis buffer, SM histogram, --output-dir flag
+- [sessions/2026-03-25-sprint9-boundary-gpkg.md](sessions/2026-03-25-sprint9-boundary-gpkg.md) — Sprint 9: boundary GeoPackage integration, polygon masking, --boundary-gpkg flag, B24 rangelands backlog
 
 ## First Principles
 

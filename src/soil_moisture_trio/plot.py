@@ -22,6 +22,7 @@ def save_risk_plot(
     lons: np.ndarray,
     output_path: str = "risk_map.png",
     time_metadata: Optional[Dict[str, str]] = None,
+    boundary_gpkg: Optional[str] = None,
 ) -> Path:
     """
     Render a two-panel PNG figure:
@@ -126,6 +127,12 @@ def save_risk_plot(
         ax.set_ylim(np.min(lats) - y_pad, np.max(lats) + 0.1)
         ax.set_aspect("equal", adjustable="box")
         ax.tick_params(labelsize=10)
+
+    if boundary_gpkg:
+        import geopandas as gpd
+        gdf = gpd.read_file(boundary_gpkg).to_crs("EPSG:4326")
+        for ax in axes:
+            gdf.boundary.plot(ax=ax, color="black", linewidth=0.7, zorder=5)
 
     fig.savefig(output, dpi=200, bbox_inches="tight", facecolor="white")
     plt.close(fig)

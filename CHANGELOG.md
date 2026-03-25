@@ -4,6 +4,28 @@ All notable changes per sprint/iteration. Format: `## [sprint] YYYY-MM-DD — Ti
 
 ---
 
+## [Sprint 9] 2026-03-25 — Boundary GeoPackage integration
+
+### Added
+
+- `config.py` — `boundary_gpkg: Optional[Path]` field; when set, bbox is derived from the file's bounds (+0.1° buffer) and cells outside the polygon are masked as invalid
+- `pipeline.py` — `_derive_bounds_from_gpkg()`: reads gpkg at pipeline init, reprojects to EPSG:4326, extracts bounds, returns `config.model_copy(update=...)` so all downstream methods use the correct bbox automatically; `_build_polygon_mask()`: vectorised `shapely.contains_xy` test of cell centres against the union of all boundary features; applied in `prepare_data()` after NaN masking
+- `plot.py` — `boundary_gpkg` parameter added to `save_risk_plot`; overlays boundary as black polygon outline on both map panels when provided
+- `main.py` — `--boundary-gpkg` flag; replaces need for manual `--min-lat/max-lat/min-lon/max-lon` when using a boundary file
+- `pyproject.toml` — `geopandas`, `matplotlib-scalebar` added as dependencies
+- `sessions/2026-03-25-sprint9-boundary-gpkg.md` — sprint notes: architecture decision (Option B vs A), implementation details, verification table
+- `docs/backlog.md` — B24 added (Option A: full-WA download + multi-region clip for rangelands, pending B22 fix)
+
+### Verified
+
+March 2026 SWAZ boundary run: Critical 0.07% (7 cells), Alert 15.48% (1,490), Watch 45.97% (4,425), Low 38.47% (3,703), valid 9,625 cells. The 405 "Critical" cells from the prior bbox-only run were rangelands outside the agricultural boundary — correctly excluded. 11 unit tests pass.
+
+### Added to backlog
+
+- **B24** — Option A (full WA download, multi-region clip): enables rangelands outputs alongside agricultural zone from one cache; requires B22 fix first.
+
+---
+
 ## [Sprint 8] 2026-03-25 — Plot fixes, output subdirectory, bulletin PNG path
 
 ### Changed

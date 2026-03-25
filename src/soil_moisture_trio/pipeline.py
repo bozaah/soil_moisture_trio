@@ -14,11 +14,40 @@ from src.soil_moisture_trio.risk import assess_risk_levels
 
 class DryWetClassifierPipeline:
     def __init__(self, config: Optional[ClassifierConfig] = None):
-        self.config = config or ClassifierConfig()
+        config = config or ClassifierConfig()
+        if config.boundary_gpkg is not None:
+            config = self._derive_bounds_from_gpkg(config)
+        self.config = config
         self.valid_mask_grid: Optional[np.ndarray] = None
         self.time_metadata: Optional[Dict[str, str]] = None
         self._silo_loader: Optional[WeatherToolsSiloLoader] = None
         print(f"Pipeline initialized with config: {self.config.model_dump()}")
+
+    @staticmethod
+    def _derive_bounds_from_gpkg(config: ClassifierConfig, buffer: float = 0.1) -> ClassifierConfig:
+        """Return a new config with min/max lat/lon derived from the boundary file (+buffer)."""
+        import geopandas as gpd
+        gdf = gpd.read_file(config.boundary_gpkg).to_crs("EPSG:4326")
+        minx, miny, maxx, maxy = gdf.total_bounds  # (min_lon, min_lat, max_lon, max_lat)
+        print(
+            f"Boundary file bounds (EPSG:4326): lon {minx:.4f}–{maxx:.4f}, lat {miny:.4f}–{maxy:.4f}. "
+            f"Applying {buffer}° buffer."
+        )
+        return config.model_copy(update={
+            "min_lat": round(miny - buffer, 6),
+            "max_lat": round(maxy + buffer, 6),
+            "min_lon": round(minx - buffer, 6),
+            "max_lon": round(maxx + buffer, 6),
+        })
+
+    def _build_polygon_mask(self, lats: np.ndarray, lons: np.ndarray) -> np.ndarray:
+        """Boolean mask — True for cells whose centre falls inside the boundary polygon."""
+        import geopandas as gpd
+        from shapely import contains_xy
+        gdf = gpd.read_file(self.config.boundary_gpkg).to_crs("EPSG:4326")
+        union_geom = gdf.union_all()
+        lon2d, lat2d = np.meshgrid(lons, lats)
+        return contains_xy(union_geom, lon2d.flatten(), lat2d.flatten()).reshape(lon2d.shape)
 
     def _get_silo_loader(self) -> WeatherToolsSiloLoader:
         if self._silo_loader is None:
@@ -329,6 +358,10 @@ class DryWetClassifierPipeline:
         vpd = data['vpd']
 
         self.valid_mask_grid = np.isfinite(soil) & np.isfinite(temp) & np.isfinite(vpd)
+        if self.config.boundary_gpkg is not None:
+            poly_mask = self._build_polygon_mask(data["lats"], data["lons"])
+            self.valid_mask_grid = self.valid_mask_grid & poly_mask
+            print(f"Polygon mask applied. Cells inside boundary: {int(poly_mask.sum())} of {poly_mask.size}")
         if not self.valid_mask_grid.any():
             raise ValueError("No valid grid cells after masking NaN values.")
 
