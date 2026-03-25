@@ -25,9 +25,9 @@ Run with: `uv run python main.py [OPTIONS]`
 
 | Flag | Description |
 |---|---|
-| `--risk-output-prefix PATH` | Prefix for NetCDF + JSON (e.g., `outputs/risk_2024`) |
-| `--risk-plot-path PATH` | Two-panel PNG output |
-| `--diag-plot-path PATH` | Diagnostics PNG (stress histogram + scatter) |
+| `--output-dir DIR` | Directory for all run outputs. When set, `--risk-output-prefix` and `--risk-plot-path` are treated as basenames within this directory. Recommended for keeping runs isolated. |
+| `--risk-output-prefix PATH` | Prefix (or basename with `--output-dir`) for NetCDF + JSON outputs |
+| `--risk-plot-path PATH` | Path (or basename with `--output-dir`) for two-panel risk PNG |
 
 ## SILO Loader
 
@@ -40,21 +40,30 @@ Run with: `uv run python main.py [OPTIONS]`
 | `--silo-overview-level INT` | — | Lower-res read (e.g., 1, 2) for testing |
 | `--silo-buffer-deg FLOAT` | 0.0 | Bounding box buffer in degrees |
 
-## Example — WA October 2025
+## Example — SWAZ March 2026
 
 ```bash
 uv run python main.py \
-  --year 2025 \
-  --start-date 2025-10-01 \
-  --end-date 2025-10-15 \
-  --risk-output-prefix outputs/risk_2025oct_WA \
-  --risk-plot-path outputs/risk_2025oct_WA.png \
+  --year 2026 \
+  --start-date 2026-03-01 \
+  --end-date 2026-03-23 \
+  --output-dir outputs/risk_2026_mar_SWAZ \
+  --risk-output-prefix risk_2026_mar_SWAZ \
+  --risk-plot-path risk_2026_mar_SWAZ.png \
   --silo-variable max_temp \
   --silo-variable vp_deficit \
-  --silo-cache-dir /tmp/silo_cache \
-  --silo-cache-max-mb 200 \
-  --min-lat -35 --max-lat -13 \
-  --min-lon 112 --max-lon 129
+  --silo-cache-dir ~/.cache/soil_moisture_trio/silo_swaz \
+  --min-lat -35 --max-lat -27 \
+  --min-lon 114 --max-lon 123
+```
+
+Then render the bulletin:
+
+```bash
+uv run python scripts/render_bulletin.py \
+  --summary-json outputs/risk_2026_mar_SWAZ/risk_2026_mar_SWAZ_summary.json \
+  --map-png outputs/risk_2026_mar_SWAZ/risk_2026_mar_SWAZ.png \
+  --output outputs/risk_2026_mar_SWAZ/bulletin_2026_mar_SWAZ.md
 ```
 
 ## Environment

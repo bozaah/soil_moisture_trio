@@ -10,6 +10,7 @@ from src.soil_moisture_trio.plot import save_risk_plot, plot_dryness_diagnostics
 def run_pipeline(
     visualize: bool = False,
     output_path: str = "classification_map.html",
+    output_dir: str | None = None,
     risk_output_prefix: str | None = None,
     risk_plot_path: str | None = None,
     year: int | None = None,
@@ -30,6 +31,14 @@ def run_pipeline(
     # ------------------------------------------------------------------
     # 1. Configuration
     # ------------------------------------------------------------------
+    if output_dir is not None:
+        out = Path(output_dir)
+        out.mkdir(parents=True, exist_ok=True)
+        if risk_output_prefix:
+            risk_output_prefix = str(out / Path(risk_output_prefix).name)
+        if risk_plot_path:
+            risk_plot_path = str(out / Path(risk_plot_path).name)
+
     config_kwargs = {}
     if year is not None:
         config_kwargs["year"] = year
@@ -139,8 +148,9 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Run the Soil Moisture Trio pipeline.")
     parser.add_argument("--visualize", action="store_true", help="Generate the Folium map output.")
     parser.add_argument("--output-path", default="classification_map.html", help="HTML output path.")
-    parser.add_argument("--risk-output-prefix", default=None, help="Prefix for NetCDF + JSON outputs.")
-    parser.add_argument("--risk-plot-path", default=None, help="Path for risk PNG figure.")
+    parser.add_argument("--output-dir", default=None, help="Directory for all run outputs. When set, --risk-output-prefix and --risk-plot-path are treated as basenames within this directory.")
+    parser.add_argument("--risk-output-prefix", default=None, help="Prefix (or basename with --output-dir) for NetCDF + JSON outputs.")
+    parser.add_argument("--risk-plot-path", default=None, help="Path (or basename with --output-dir) for risk PNG figure.")
     parser.add_argument("--year", type=int, default=None)
     parser.add_argument("--start-date", type=str, default=None)
     parser.add_argument("--end-date", type=str, default=None)
@@ -161,6 +171,7 @@ if __name__ == "__main__":
     run_pipeline(
         visualize=args.visualize,
         output_path=args.output_path,
+        output_dir=args.output_dir,
         risk_output_prefix=args.risk_output_prefix,
         risk_plot_path=args.risk_plot_path,
         year=args.year,

@@ -4,6 +4,56 @@ All notable changes per sprint/iteration. Format: `## [sprint] YYYY-MM-DD — Ti
 
 ---
 
+## [Sprint 8] 2026-03-25 — Plot fixes, output subdirectory, bulletin PNG path
+
+### Changed
+
+- `scripts/render_bulletin.py` — bulletin now embeds PNG as a path relative to the bulletin file's parent directory (fixes VSCode preview — was resolving `outputs/outputs/foo.png`); `_relative_png()` helper added; falls back to original path if relative resolution fails
+- `src/soil_moisture_trio/plot.py` (`save_risk_plot`) — added y-axis south buffer (`max(cell_height, 0.3)°`) to stop southernmost cells being clipped by `pcolormesh`; `0.1°` north buffer added for symmetry
+- `src/soil_moisture_trio/plot.py` (`plot_dryness_diagnostics`) — left histogram panel changed from Dryness–Stress Index distribution to Soil Moisture Percentile Rank distribution; more useful diagnostic: shows how cells sit relative to historical climatology
+- `main.py` — `--output-dir` flag added; when set, `--risk-output-prefix` and `--risk-plot-path` are treated as basenames within the specified directory; `stress_diagnostics.png` follows automatically (derived from plot path)
+
+### Added
+
+- `sessions/2026-03-25-sprint8-plot-output-fixes.md` — sprint notes: root cause and fix for each of the four issues
+
+### Verified
+
+March 2026 SWAZ (1–23 Mar, lat −35 to −27, lon 114–123): Critical 1.69%, Alert 15.65%, Watch 43.25%, Low 39.41%. All outputs in `outputs/risk_2026_mar_SWAZ/`. Bulletin PNG renders in VSCode preview. 11 unit tests pass.
+
+---
+
+## [Sprint 7] 2026-03-25 — Persistent SILO cache, bulletin template, threshold recalibration
+
+### Changed
+
+- `config.py` — `silo_cache_dir` default changed from `None` to `~/.cache/soil_moisture_trio/silo`; directory is created automatically on first run; prior default (`None` → `save_to_disk=False`) caused GeoTIFFs to be discarded after each run
+- `config.py` — `moisture_threshold` 0.30 → 0.50; dryness factor now measures departure below the climatological median (consistent with BoM anomaly framing) rather than departure below the 30th-percentile Watch/Low boundary; validated against March 2026 SWAZ (Critical 1.7%, Alert 15.6% — within target <10%/<25%)
+- `docs/data-sources.md` — SILO cache section updated to document the new persistent default and override instructions
+- `docs/backlog.md` — B21 resolved (persistent cache); B22 added (cache-bbox shape mismatch bug); B23 added (seasonal stress index thresholds, future work)
+- `docs/technical_report.md` — Section 2 reframed as "Soil Moisture Percentile Rank — Interpretation Reference" with explicit note that it does not drive `risk.py`; Section 3 expanded with §3.5 (scientific rationale for thresholds and weights, including new dryness reference point subsection with calibration note); version updated to Sprint 7
+
+### Added
+
+- `templates/bulletin_template.j2` — Jinja2 Markdown bulletin template: header, key finding sentence, risk summary table, map embed, methodology note, caveats
+- `scripts/render_bulletin.py` — standalone CLI renderer: `--summary-json`, `--map-png`, `--output`; renders the template from a risk summary JSON; handles `< 0.1%` display for near-zero values; strips ISO timestamp from date fields
+- `sessions/2026-03-25-sprint7-persistent-cache-bulletin.md` — sprint notes: discrepancy log, threshold recalibration decisions, validation table
+
+### Resolved
+
+- **B21** — `silo_cache_dir` now persistent by default; no explicit `--silo-cache-dir` needed for standard runs.
+
+### Added to backlog
+
+- **B22** — SILO cache key does not include bounding box; mixed-bbox runs in one cache dir cause `np.stack` shape mismatch. Workaround: use `--silo-cache-dir` per bbox.
+- **B23** — Seasonal stress index thresholds (Option C): replace fixed 0.85/0.60/0.35 thresholds with season-calibrated values to stabilise the proportion of cells in each category across months.
+
+### Verified
+
+March 2026 SWAZ (1–23 Mar, lat −35 to −27, lon 114–123): Critical 1.7%, Alert 15.6%, Watch 43.3%, Low 39.4% (target: Critical <10%, Alert <25%). 11 unit tests pass.
+
+---
+
 ## [Sprint 6] 2026-03-23 — Decile calibration: switch to AWRAL percentile rank product
 
 ### Changed

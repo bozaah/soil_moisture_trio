@@ -1,6 +1,6 @@
 # Soil Moisture Trio
 
-A machine learning pipeline that classifies Australian grid cells as **dry** or **wet** using AWRAL soil moisture, SILO temperature, and SILO vapour pressure deficit. Produces categorical risk maps for decision support.
+A rule-based drought risk monitoring pipeline for the Australian landscape. Combines AWRA-L soil moisture decile ranks, SILO maximum temperature, and SILO vapour pressure deficit into a composite stress index, then assigns categorical risk levels to each grid cell.
 
 ## Outputs
 
@@ -9,6 +9,7 @@ A machine learning pipeline that classifies Australian grid cells as **dry** or 
 | Risk map | NetCDF | `RiskLevel` per cell: Low / Watch / Alert / Critical |
 | Summary | JSON | Cell counts and percentages per risk band |
 | Risk plot | PNG | Two-panel: categorical map + continuous stress index |
+| Bulletin | Markdown | Policy-ready bulletin rendered from summary JSON |
 | Interactive map | HTML | Optional Folium map (pass `--visualize`) |
 
 ## Requirements
@@ -22,43 +23,55 @@ A machine learning pipeline that classifies Australian grid cells as **dry** or 
 uv sync
 ```
 
-## Quick Start
+## Quick Start — WA Southwest Agricultural Zone
 
 ```bash
 uv run python main.py \
-  --year 2025 \
-  --start-date 2025-10-01 \
-  --end-date 2025-10-15 \
-  --risk-output-prefix outputs/risk_2025oct_WA \
-  --risk-plot-path outputs/risk_2025oct_WA.png \
+  --year 2026 \
+  --start-date 2026-03-01 \
+  --end-date 2026-03-23 \
+  --output-dir outputs/risk_2026_mar_SWAZ \
+  --risk-output-prefix risk_2026_mar_SWAZ \
+  --risk-plot-path risk_2026_mar_SWAZ.png \
   --silo-variable max_temp \
   --silo-variable vp_deficit \
-  --min-lat -35 --max-lat -13 \
-  --min-lon 112 --max-lon 129
+  --silo-cache-dir ~/.cache/soil_moisture_trio/silo_swaz \
+  --min-lat -35 --max-lat -27 \
+  --min-lon 114 --max-lon 123
+```
+
+Then render a bulletin (all files in the same run directory):
+
+```bash
+uv run python scripts/render_bulletin.py \
+  --summary-json outputs/risk_2026_mar_SWAZ/risk_2026_mar_SWAZ_summary.json \
+  --map-png outputs/risk_2026_mar_SWAZ/risk_2026_mar_SWAZ.png \
+  --output outputs/risk_2026_mar_SWAZ/bulletin_2026_mar_SWAZ.md
 ```
 
 See [docs/cli-reference.md](docs/cli-reference.md) for all flags.
 
 ## How It Works
 
-1. **Load** — AWRAL `sm_pct` (fraction 0–1) + SILO `max_temp` and `vp_deficit`, clipped to bounds and averaged over the requested time window
-2. **Label** — rule-based dry/wet labels from soil moisture, temperature, and VPD thresholds
-3. **Train** — CatBoost classifier on valid (non-NaN) grid cells
-4. **Predict** — classify full grid; ocean/missing cells encoded as `-1`
-5. **Risk** — physics-based dryness stress index → categorical risk map
+1. **Load** — AWRAL `sm_pct` percentile rank (0–1) + SILO `max_temp` and `vp_deficit`, clipped to bounds and averaged over the requested time window
+2. **Risk** — composite stress index: 60% soil moisture deficit (departure below median) + 25% VPD + 15% temperature, normalised against agronomic critical thresholds
+3. **Classify** — stress index thresholds assign each cell to Low / Watch / Alert / Critical; ocean and missing-data cells are masked (`-1`)
+4. **Output** — NetCDF risk map, JSON summary, PNG figure, optional bulletin and Folium map
 
-Full pipeline detail: [docs/architecture.md](docs/architecture.md)
+Full pipeline detail: [docs/architecture.md](docs/architecture.md) | Methodology: [docs/technical_report.md](docs/technical_report.md)
 
 ## Project Structure
 
 ```text
 src/soil_moisture_trio/
   config.py        ClassifierConfig — all tunable parameters (Pydantic)
-  pipeline.py      DryWetClassifierPipeline — data loading, ML, prediction
-  data_sources.py  WeatherToolsSiloLoader — SILO COG fetcher + cache
-  risk.py          Stress index, RiskLevel enum, NetCDF/JSON output
+  pipeline.py      DryWetClassifierPipeline — data loading and risk assessment
+  data_sources.py  WeatherToolsSiloLoader — SILO COG fetcher + persistent cache
+  risk.py          Composite stress index, RiskLevel enum, NetCDF/JSON output
   plot.py          PNG outputs
   visualize.py     Folium HTML map
+templates/         Jinja2 output templates
+scripts/           Standalone utilities (bulletin renderer)
 tests/             pytest suite (mocks network I/O)
 docs/              Reference documentation
 sessions/          Per-session notes and working log
@@ -66,14 +79,20 @@ sessions/          Per-session notes and working log
 
 ## Configuration
 
-All thresholds and hyperparameters live in `ClassifierConfig` (`src/.../config.py`). Key defaults:
+All thresholds live in `ClassifierConfig` (`src/.../config.py`). Key defaults:
 
 | Parameter | Default | Note |
 | --- | --- | --- |
-| `moisture_threshold` | 0.25 | **Likely needs lowering** for your dataset — see [docs/thresholds.md](docs/thresholds.md) |
-| `temp_threshold` | 30.0 °C | Dry label trigger |
-| `vpd_threshold` | 20.0 hPa | Dry label trigger |
-| `catboost_iterations` | 30 | Override via `--catboost-iterations` |
+| `moisture_threshold` | 0.50 | Dryness reference — departure below climatological median |
+| `critical_temp_threshold` | 40.0 °C | Normalisation ceiling for temperature factor |
+| `critical_vpd_threshold` | 32.0 hPa | Normalisation ceiling for VPD factor (3.2 kPa) |
+| `silo_cache_dir` | `~/.cache/soil_moisture_trio/silo` | Persistent tile cache; created automatically |
+
+## SILO Cache
+
+SILO GeoTIFF tiles are cached to `~/.cache/soil_moisture_trio/silo` by default and persist across runs. Re-running the same period and bounding box incurs zero downloads.
+
+> **Note (B22):** The cache key does not include the bounding box. Runs with different bounding boxes must use separate cache directories via `--silo-cache-dir`. See [docs/backlog.md](docs/backlog.md).
 
 ## Tests
 
@@ -87,10 +106,9 @@ uv run pytest tests/test_pipeline.py tests/test_data_sources.py -q
 
 | Doc | Contents |
 | --- | --- |
+| [docs/technical_report.md](docs/technical_report.md) | Full methodology: data sources, stress index, thresholds, scientific rationale |
 | [docs/architecture.md](docs/architecture.md) | Pipeline flow, data contract, spatial handling |
-| [docs/data-sources.md](docs/data-sources.md) | AWRAL/SILO sources, units, placeholders |
-| [docs/thresholds.md](docs/thresholds.md) | Threshold guidance and calibration strategy |
+| [docs/data-sources.md](docs/data-sources.md) | AWRAL/SILO sources, units, cache |
 | [docs/cli-reference.md](docs/cli-reference.md) | All CLI flags |
-| [docs/risk-model.md](docs/risk-model.md) | Stress index formula, risk bands |
 | [docs/backlog.md](docs/backlog.md) | Open issues and next steps |
 | [CHANGELOG.md](CHANGELOG.md) | Per-sprint changes |

@@ -119,9 +119,11 @@ def save_risk_plot(
     cbar2.set_label("Dryness–Stress Index")
     cbar2.ax.tick_params(labelsize=9)
 
+    cell_h = float(np.diff(lats).mean()) if len(lats) > 1 else 0.05
+    y_pad = max(abs(cell_h), 0.3)
     for ax in axes:
         ax.set_xlim(np.min(lons), np.max(lons))
-        ax.set_ylim(np.min(lats), np.max(lats))
+        ax.set_ylim(np.min(lats) - y_pad, np.max(lats) + 0.1)
         ax.set_aspect("equal", adjustable="box")
         ax.tick_params(labelsize=10)
 
@@ -174,12 +176,12 @@ def plot_dryness_diagnostics(
     # Build final valid mask
     valid = np.isfinite(stress_flat) & np.isfinite(soil_flat) & np.isfinite(vpd_flat)
 
-    # Histogram of dryness–stress
+    # Histogram of soil moisture percentile rank
     ax1 = axes[0]
-    ax1.hist(stress_flat[valid], bins=40, color="steelblue", alpha=0.8)
-    ax1.set_xlabel("Dryness–Stress Index (0–1)")
+    ax1.hist(soil_flat[valid], bins=40, color="steelblue", alpha=0.8)
+    ax1.set_xlabel("Soil Moisture Percentile Rank (0–1)")
     ax1.set_ylabel("Frequency")
-    ax1.set_title("Distribution of Dryness–Stress Index")
+    ax1.set_title("Distribution of Soil Moisture Percentile Rank")
 
     # Scatter of soil moisture vs. VPD colored by stress
     ax2 = axes[1]

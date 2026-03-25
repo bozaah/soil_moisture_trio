@@ -8,7 +8,7 @@ from pydantic import BaseModel, Field
 class ClassifierConfig(BaseModel):
     # --- Dry/wet classification thresholds ---
     # soil moisture values are AWRAL decile percentile ranks (0–1)
-    moisture_threshold: float = Field(0.30, ge=0, le=1, description="Dry if sm_pct percentile rank < this (Watch/Low boundary)")
+    moisture_threshold: float = Field(0.50, ge=0, le=1, description="Dryness factor reference: dryness = clip((threshold - sm_pct) / threshold, 0, 1). 0.50 = climatological median; cells above median contribute zero dryness.")
     temp_threshold: float = Field(30.0, ge=0, description="High temperature threshold (°C)")
     vpd_threshold: float = Field(20.0, ge=0, description="High VPD threshold (hPa)")
 
@@ -37,7 +37,10 @@ class ClassifierConfig(BaseModel):
         description="SILO variables to request via weather_tools",
     )
     use_silo_cog_loader: bool = Field(True, description="Fetch SILO data via weather_tools COG loader")
-    silo_cache_dir: Optional[Path] = Field(None, description="Directory for persisting SILO GeoTIFF downloads")
+    silo_cache_dir: Path = Field(
+        default_factory=lambda: Path.home() / ".cache" / "soil_moisture_trio" / "silo",
+        description="Directory for persisting SILO GeoTIFF downloads. Created automatically if absent.",
+    )
     silo_cache_max_size_mb: int = Field(200, ge=50, description="Max SILO cache size (MB)")
     silo_overview_level: Optional[int] = Field(None, ge=0, description="Overview level for lower-resolution reads")
     silo_buffer_degrees: float = Field(0.0, ge=0.0, description="Extra degrees to buffer around bounding box")

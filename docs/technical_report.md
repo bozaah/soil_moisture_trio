@@ -1,7 +1,7 @@
 # Soil Moisture Trio — Technical Report
 
-**Version:** Sprint 6 | **Date:** 2026-03-23
-**Status:** Operational — decile-calibrated, rule-based risk classification
+**Version:** Sprint 7 | **Date:** 2026-03-25
+**Status:** Operational — decile-calibrated, composite stress index risk classification
 
 ---
 
@@ -51,36 +51,30 @@ A WA monthly decile subset covering the full historical record has been download
 
 ---
 
-## 2. Classification Thresholds and Scientific Rationale
+## 2. Soil Moisture Percentile Rank — Interpretation Reference
 
-### 2.1 Risk Categories
+The table below shows how `sm_pct` percentile rank values map to drought severity classes for interpretation and communication purposes.
 
-The pipeline assigns each grid cell to one of four drought risk categories based on its soil moisture percentile rank:
+> **Note:** The pipeline's actual risk assignment uses the **composite stress index** described in Section 3, not these thresholds directly. The soil moisture percentile rank is one of three inputs to that composite. The `ClassifierConfig` fields `severe_moisture_threshold` (0.10) and `alert_moisture_threshold` (0.20) are retained in configuration for reference and future use but are **not currently referenced** by the risk calculation in `risk.py`.
 
-| Percentile rank | Category | Interpretation |
+| Percentile rank | Severity class | Interpretation |
 |---|---|---|
 | ≤ 0.10 | **Critical** | Soil moisture is at or below the 10th percentile — conditions as dry or drier than 90% of historical observations for this location and season. Consistent with severe drought. |
 | 0.10 – 0.20 | **Alert** | 10th to 20th percentile. Significant drying episode; below what is typical for the season. Likely to affect pasture recovery, crop viability, and stock water. |
 | 0.20 – 0.30 | **Watch** | 20th to 30th percentile. Drier than roughly two-thirds of historical years. Warrants monitoring, particularly if conditions persist. |
 | > 0.30 | **Low** | Above the 30th percentile. Within or above the historically normal range. No immediate drought concern. |
 
-These thresholds are set in `ClassifierConfig`:
-
-- `moisture_threshold = 0.30` (Watch/Low boundary)
-- `alert_moisture_threshold = 0.20` (Alert/Watch boundary)
-- `severe_moisture_threshold = 0.10` (Critical/Alert boundary)
-
-### 2.2 Why These Boundaries?
+### 2.1 Why These Boundaries?
 
 The 10th, 20th, and 30th percentiles are standard reference points in Australian drought monitoring (consistent with the Bureau of Meteorology's decile-based drought classification). Defining categories in percentile space means:
 
-- A cell classified as Critical in January in the wheatbelt is experiencing the same *relative* severity of dryness as a Critical cell in July in the Kimberley — even though their absolute soil water contents differ greatly.
+- A cell at the 10th percentile in January in the wheatbelt is experiencing the same *relative* severity of dryness as a cell at the 10th percentile in July in the Kimberley — even though their absolute soil water contents differ greatly.
 - The proportion of the landscape in each category is stable over long climatological averages (by construction, ~10%, ~10%, ~10%, ~70% on average).
 - Short-term departures from those proportions indicate genuine anomalies.
 
-### 2.3 Before and After Calibration
+### 2.2 Calibration Validation
 
-Switching from raw volumetric fraction to the percentile rank product eliminated a systematic over-classification bias. The table below shows the January–March 2026 WA results under both approaches:
+Switching from raw volumetric fraction to the percentile rank product eliminated a systematic over-classification bias. The table below shows soil-moisture-only classification of January–March 2026 WA cells under both approaches:
 
 | Category | Raw sm_pct (old) | Decile rank (current) |
 |---|---|---|
@@ -89,7 +83,7 @@ Switching from raw volumetric fraction to the percentile rank product eliminated
 | Watch | 9.4% | 12.3% |
 | Low | 14.1% | 79.9% |
 
-With the raw product, almost half of WA was classified Critical in summer — not because conditions were genuinely extreme, but because the absolute threshold (0.25 volumetric fraction) sat above most of the observed distribution. The decile product produces results consistent with climatological expectation: Critical and Alert conditions affect a small fraction of the landscape except during genuine drought events.
+With the raw product, almost half of WA was classified Critical in summer — not because conditions were genuinely extreme, but because the absolute threshold (0.25 volumetric fraction) sat above most of the observed distribution. The decile product produces results consistent with climatological expectation: based on soil moisture alone, Critical and Alert conditions affect a small fraction of the landscape except during genuine drought events.
 
 As a sanity check: the historical mean percentile rank across all Jan–Mar months (1911–2026) is exactly **0.500** — confirming the decile product is correctly centred on its long-run median.
 
@@ -115,13 +109,13 @@ stress_index = 0.60 × dryness_factor
 
 **What each component means:**
 
-- **`dryness_factor`** measures how far below the Watch/Low threshold (0.30 percentile rank) the current soil moisture is, expressed as a proportion of that threshold. A cell at the 30th percentile has dryness_factor = 0 (no soil water stress). A cell at the 10th percentile has dryness_factor ≈ 0.67. A cell at or below the 0th percentile has dryness_factor = 1.0 (maximum). Crucially, because `sm_pct_rank` is already a percentile rank, the dryness_factor is measuring *probabilistic* deficit — how anomalous the current soil moisture is relative to the historical distribution at that location — rather than a raw physical water volume. This is a more meaningful input to a stress calculation than volumetric fraction because it captures the climatological context.
+- **`dryness_factor`** measures how far below the climatological median (0.50 percentile rank) the current soil moisture is, expressed as a proportion of that reference point. A cell at or above the 50th percentile has dryness_factor = 0 (no soil water stress contribution). A cell at the 20th percentile has dryness_factor = 0.60. A cell at the 5th percentile has dryness_factor = 0.90. A cell at the 0th percentile has dryness_factor = 1.0 (maximum). Using the median as the reference — rather than an absolute volumetric threshold — means the dryness_factor is measuring *departure from climatological normal*, consistent with how BoM frames precipitation and soil moisture anomalies. This also ensures the formula is seasonally symmetric: conditions drier than the historical median always contribute positively to stress, regardless of season.
 
-- **`temp_factor`** normalises temperature against the critical heat threshold (40°C). At 40°C, temp_factor = 1.0; below that it scales linearly. It represents the fraction of maximum heat stress being experienced.
+- **`temp_factor`** normalises temperature against the critical heat threshold (40°C). At 40°C, temp_factor = 1.0; below that it scales linearly.
 
-- **`vpd_factor`** normalises vapour pressure deficit against a critical VPD threshold (32 hPa). High VPD accelerates plant water loss and intensifies moisture stress independently of soil water content.
+- **`vpd_factor`** normalises vapour pressure deficit against a critical VPD threshold (32 hPa = 3.2 kPa). High VPD accelerates plant water loss and intensifies moisture stress independently of soil water content.
 
-**Weights:** Soil moisture deficit is the primary driver (60%), with atmospheric demand (VPD, 25%) and heat (15%) as amplifiers. This weighting reflects agronomic evidence that soil water depletion is the proximate cause of crop and pasture stress, while heat and VPD determine the rate of loss and the plant's ability to cope.
+**Weights:** Soil moisture deficit is the primary driver (60%), with atmospheric demand (VPD, 25%) and heat (15%) as amplifiers.
 
 ### 3.3 Risk Level Assignment
 
@@ -139,6 +133,47 @@ Cells with no data (ocean, areas outside domain, or missing inputs) are assigned
 ### 3.4 Valid Cell Masking
 
 The valid cell mask is built once during data loading (`prepare_data()`): a cell is valid if and only if all three inputs — soil moisture, temperature, and VPD — contain finite values. Ocean and missing-data cells are excluded at this stage and carry a sentinel value of `-1` through all outputs. No imputation is performed.
+
+### 3.5 Scientific Rationale for Thresholds and Weights
+
+#### Dryness reference point — 0.50 (climatological median)
+
+The `moisture_threshold` parameter sets the reference point at which `dryness_factor` becomes zero — i.e., the soil moisture percentile rank above which a cell contributes no soil water stress to the composite index. Using the climatological median (0.50) means:
+
+- The dryness formula measures *departure below the median*, directly analogous to BoM's approach of expressing anomalies relative to the historical median.
+- Cells at the 30th–50th percentile (below-normal but not severe) contribute moderate dryness, which is appropriate in combination with elevated atmospheric demand in the shoulder seasons (autumn/spring).
+- In genuine drought conditions (sm_pct < 10th percentile), dryness_factor ≥ 0.80, ensuring these cells drive Alert or Critical classification when atmospheric stress is present.
+- The maximum soil-moisture-alone stress contribution is 0.60 × 1.0 = 0.60, which places a cell with zero soil moisture at the Alert/Critical boundary — requiring at least some atmospheric stress to confirm Critical classification. This prevents cells at extreme-but-not-exceptional soil moisture from being classified Critical solely on dryness.
+
+> **Calibration note (Sprint 7):** `moisture_threshold` was changed from 0.30 to 0.50. The earlier value (0.30) caused dryness_factor to be zero for all cells above the 30th percentile and to underweight the contribution of cells in the 10th–30th percentile range. The result was near-zero Critical and low Alert proportions in autumn/spring even when soil moisture was substantially below normal. The 0.50 value restores the intended sensitivity and produces climatologically plausible outputs across all seasons. March 2026 SWAZ validation: Critical 1.7%, Alert 15.6% (target: <10%, <20–25%).
+
+#### Temperature threshold — 40°C
+
+Heat denaturation of photosynthetic enzymes (Rubisco) accelerates above 38–40°C in C3 crops. Wheat pollen viability drops sharply above 35°C and grain fill is critically impaired above 38°C; 40°C is the broadly-cited catastrophic damage threshold used in BoM agroclimate guidance and DPIRD agronomy advisory. For rangeland livestock, metabolic heat load in cattle and sheep becomes severe above 35°C and life-threatening above 40°C. Using 40°C as the normalisation denominator means `temp_factor` reaches 1.0 only at the observed physiological damage ceiling, and scales proportionally below it.
+
+#### VPD threshold — 32 hPa (3.2 kPa)
+
+Stomatal closure in most broadacre crops begins around 1.5 kPa; virtually all WA crop species show significant yield penalties above 2.5 kPa. At 3.2 kPa (32 hPa), atmospheric demand exceeds the capacity of most crops to maintain favourable water balance even with moderate soil moisture, and no longer discriminates meaningfully between "severe" and "catastrophic" conditions. This value represents the upper tail of the WA growing-season VPD distribution and is consistent with the threshold above which BoM classifies atmospheric dryness as extreme for agricultural purposes. Using 32 hPa as the normalisation denominator ensures `vpd_factor` captures the full dynamic range of agronomically meaningful VPD without saturating at moderate values.
+
+#### Weight rationale — 0.60 / 0.25 / 0.15
+
+| Component | Weight | Rationale |
+|---|---|---|
+| Soil moisture deficit | 0.60 | Water availability is the primary limiting factor for plant growth in dryland WA systems. The AWRA-L percentile rank directly measures the probability of seeing drier conditions, making it the most robust signal in the composite. |
+| VPD | 0.25 | Drives transpiration demand and accelerates soil water depletion. High VPD independently reduces water-use efficiency and can cause stress even with moderate soil moisture. Its contribution amplifies soil moisture stress rather than substituting for it. |
+| Temperature | 0.15 | Direct heat damage occurs at extremes but co-varies strongly with VPD (hot days are typically dry). A lower weight mitigates double-counting of the atmospheric stress signal already partially captured by the VPD term. |
+
+These weights are consistent with the agronomic literature and represent expert judgment. They have **not been formally optimised against observed yield or pasture-loss data** and should be treated as calibration parameters subject to revision when labelled outcome data become available (see B20 in `docs/backlog.md`).
+
+#### Stress index thresholds — 0.35 / 0.60 / 0.85
+
+The thresholds are set so that atmospheric stress alone (VPD + temperature, with no soil moisture deficit) cannot drive cells above the Watch category, ensuring soil water depletion is always a prerequisite for higher-severity classification:
+
+| Threshold | What is required to reach it |
+|---|---|
+| Watch (≥ 0.35) | Soil moisture near-adequate (dryness ≈ 0) with near-maximum combined VPD and temperature (max atmospheric contribution = 0.25 + 0.15 = 0.40). Atmospheric stress alone can just breach Watch; soil moisture deficit pulls it higher. |
+| Alert (≥ 0.60) | Requires soil moisture deficit. With dryness = 0 (sm_pct ≥ 0.30), maximum stress is 0.40 — Alert is unreachable by atmospheric stress alone. A cell at the ~15th percentile with high VPD and temperature reaches Alert. |
+| Critical (≥ 0.85) | Cannot be reached without severe soil moisture deficit. Requires sm_pct ≤ approximately the 8th percentile with near-maximum VPD and temperature, or sm_pct near the 0th percentile with moderate atmospheric stress. This ensures Critical reflects genuine multi-factor extremes. |
 
 ---
 
@@ -159,15 +194,21 @@ Two figures are produced:
 - **Risk map figure:** Side-by-side categorical risk map (colour-coded by level) and continuous stress index map (0–1 gradient). The stress index panel shows the intensity of conditions within each category.
 - **Diagnostic figure:** Histogram of the stress index distribution and a soil moisture vs VPD scatter plot coloured by stress index, for quality-checking the run.
 
-### 4.4 Interactive Map (optional)
+### 4.4 Bulletin (Markdown)
+
+A formatted Markdown bulletin for policy staff, rendered from the summary JSON via `scripts/render_bulletin.py` against `templates/bulletin_template.j2`. Includes key finding, risk table, map reference, methodology note, and caveats. See Section 5.2.
+
+### 4.5 Interactive Map (optional)
 
 A Folium HTML map with clickable cells showing risk level and coordinates, for field-scale exploration.
 
 ---
 
-## 5. Spatial Domain and Operational Use
+## 5. Operational Use
 
-The default spatial domain covers all of Australia. For Western Australia operational runs, the following bounds are recommended to avoid unnecessary processing of the eastern states:
+### 5.1 Standard WA Run
+
+The default spatial domain covers all of Australia. For Western Australia operational runs, the following bounds avoid unnecessary processing of the eastern states:
 
 ```bash
 uv run python main.py \
@@ -182,7 +223,20 @@ uv run python main.py \
   --min-lon 112 --max-lon 129
 ```
 
-Estimated run time for a WA window: ~5–10 minutes depending on SILO cache state (cached runs are substantially faster).
+The SILO cache directory defaults to `~/.cache/soil_moisture_trio/silo` and is created automatically on first run. Pass `--silo-cache-dir PATH` to override. Re-running the same period with a warm cache incurs zero downloads.
+
+Estimated run time for a WA window: ~5–10 minutes on first run (cold cache); substantially faster on subsequent runs.
+
+### 5.2 Rendering a Bulletin
+
+After a pipeline run, generate a policy bulletin from the summary JSON:
+
+```bash
+uv run python scripts/render_bulletin.py \
+  --summary-json outputs/risk_2026_jan-mar_WA_summary.json \
+  --map-png outputs/risk_2026_jan-mar_WA.png \
+  --output outputs/bulletin_2026_jan-mar_WA.md
+```
 
 ---
 
@@ -190,10 +244,12 @@ Estimated run time for a WA window: ~5–10 minutes depending on SILO cache stat
 
 | Item | Description | Priority |
 |---|---|---|
-| Stress index weights hardcoded | The 0.60/0.25/0.15 weights are not yet exposed as configurable parameters. Adjustment requires modifying `risk.py`. | Medium |
+| Orphaned config fields | `severe_moisture_threshold`, `alert_moisture_threshold`, `watch_margin`, `temp_threshold`, `vpd_threshold`, `alert_temp_threshold`, `alert_vpd_threshold` are defined in `ClassifierConfig` but not referenced by `risk.py`. Retained as legacy from the pre-Sprint-6 rule-based classifier; see Section 2 note. | Low |
+| Stress index weights not configurable | The 0.60/0.25/0.15 weights are hardcoded in `risk.py`. Adjustment requires modifying source code. Exposure via `ClassifierConfig` tracked as B10. | Medium |
+| Weights not empirically validated | Weights and thresholds are expert-judgment calibrations. Formal optimisation against yield/pasture-loss data is tracked as B20. | Future |
 | No temporal trend analysis | Each run produces a snapshot. Multi-period trend comparison (drying trajectories, persistent hotspots) is not yet implemented. | Future |
 | No spatial aggregation | Risk map is cell-level only. Aggregation to NRM regions, catchments, or farm units would support decision-support use. | Future |
-| Logging | Pipeline uses `print()` for status messages. Replacing with structured `logging` would improve production readiness. | Low |
+| Logging | Pipeline uses `print()` for status messages. Replacing with structured `logging` would improve production readiness (B5). | Low |
 
 ---
 
@@ -212,3 +268,4 @@ Estimated run time for a WA window: ~5–10 minutes depending on SILO cache stat
 | NetCDF | `.nc` | Risk map with coordinates and metadata |
 | JSON | `.json` | Cell counts, percentages, time window |
 | PNG | `.png` | Risk map + stress index + diagnostics |
+| Bulletin | `.md` | Policy-ready Markdown bulletin |

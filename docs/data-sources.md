@@ -49,16 +49,18 @@ Previously used `processed/values/day/sm_pct_{YEAR}.nc` (raw volumetric fraction
 
 ### SILO GeoTIFF Cache
 
-By default, tiles are cached to the system temp directory:
+By default, tiles are cached to:
 
 ```
-/var/folders/<hash>/T/weather_tools_cache/geotiff/{variable}/{year}/{YYYYMMDD}.{variable}.tif
+~/.cache/soil_moisture_trio/silo/{variable}/{year}/{YYYYMMDD}.{variable}.tif
 ```
 
-**This location is not persistent** — the OS can clear it on reboot. For reproducible multi-run workflows, specify a persistent directory:
+This directory is created automatically on first run. It is persistent across reboots and shared between runs, so re-running the same period incurs zero downloads.
+
+To override the cache location:
 
 ```bash
---silo-cache-dir /path/to/persistent/silo_cache
+--silo-cache-dir /path/to/custom/silo_cache
 ```
 
 Observed cache sizes from production runs (WA bbox, COG subsets):
