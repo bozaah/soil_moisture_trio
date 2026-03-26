@@ -23,8 +23,10 @@ RISK_LABELS = {
     RiskLevel.LOW: "Low",
     RiskLevel.WATCH: "Watch",
     RiskLevel.ALERT: "Alert",
-    RiskLevel.CRITICAL: "High",
+    RiskLevel.CRITICAL: "Critical",
 }
+
+RISK_SUMMARY_ORDER = ("critical", "alert", "watch", "low")
 
 RISK_COLORS = {
     RiskLevel.LOW: "#2b83ba",     # Blue - Wet/Low Risk
@@ -53,7 +55,7 @@ def _compute_risk_map(
     data_grids: Dict[str, np.ndarray],
     valid_mask: np.ndarray,
     config: ClassifierConfig
-) -> np.ndarray:
+) -> Tuple[np.ndarray, np.ndarray]:
     """
     Compute risk map using a physically-based dryness–stress index that combines:
       - soil moisture deficit (percentile rank below moisture_threshold)
@@ -206,6 +208,7 @@ __all__ = [
     "RiskLevel",
     "RISK_LABELS",
     "RISK_COLORS",
+    "RISK_SUMMARY_ORDER",
     "assess_risk_levels",
     "save_risk_outputs",
 ]

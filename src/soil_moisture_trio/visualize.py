@@ -1,15 +1,18 @@
+import logging
 from typing import Dict, Optional
 
 import folium
 import numpy as np
 
-from src.soil_moisture_trio.risk import RISK_COLORS, RISK_LABELS, RiskLevel
+from src.soil_moisture_trio.risk import RISK_COLORS, RISK_LABELS, RISK_SUMMARY_ORDER, RiskLevel
+
+LOGGER = logging.getLogger(__name__)
 
 
 def _add_summary_panel(map_obj: folium.Map, summary: Dict[str, Dict[str, float]]) -> None:
     """Attach a simple HTML summary panel showing risk counts."""
     rows = []
-    for key in ["critical", "elevated", "watch", "low", "invalid"]:
+    for key in [*RISK_SUMMARY_ORDER, "invalid"]:
         if key in summary:
             stats = summary[key]
             rows.append(
@@ -29,6 +32,29 @@ def _add_summary_panel(map_obj: folium.Map, summary: Dict[str, Dict[str, float]]
     map_obj.get_root().html.add_child(folium.Element(table_html))
 
 
+def _grid_edges(values: np.ndarray) -> np.ndarray:
+    """Convert grid-centre coordinates into cell edges for full-grid rectangle rendering."""
+    values = np.asarray(values, dtype=float)
+    if values.ndim != 1:
+        raise ValueError("Grid coordinates must be 1D.")
+    if values.size == 0:
+        raise ValueError("Grid coordinates cannot be empty.")
+    if values.size == 1:
+        half_step = 0.05
+        return np.array([values[0] - half_step, values[0] + half_step], dtype=float)
+
+    diffs = np.diff(values)
+    if np.any(diffs == 0):
+        raise ValueError("Grid coordinates must be strictly monotonic.")
+    if not (np.all(diffs > 0) or np.all(diffs < 0)):
+        raise ValueError("Grid coordinates must be monotonic.")
+
+    midpoints = values[:-1] + (diffs / 2.0)
+    first_edge = values[0] - (diffs[0] / 2.0)
+    last_edge = values[-1] + (diffs[-1] / 2.0)
+    return np.concatenate(([first_edge], midpoints, [last_edge]))
+
+
 def create_interactive_map(
     risk_map: np.ndarray,
     lats: np.ndarray,
@@ -41,7 +67,7 @@ def create_interactive_map(
 
     Args:
         risk_map: 2D numpy array of RiskLevel values.
-        lats/lons: 1D arrays defining the grid edges.
+        lats/lons: 1D arrays defining grid-cell centres.
         risk_summary: Optional dictionary of counts/percentages to show on the map.
         output_path: Target HTML filename.
     """
@@ -54,15 +80,18 @@ def create_interactive_map(
     center_lon = float(np.mean(lons))
     folium_map = folium.Map(location=[center_lat, center_lon], zoom_start=5)
     risk_layer = folium.FeatureGroup(name="Dry/Wet Risk").add_to(folium_map)
+    lat_edges = _grid_edges(lats)
+    lon_edges = _grid_edges(lons)
 
-    for i in range(len(lats) - 1):
-        for j in range(len(lons) - 1):
-            lat_min, lat_max = lats[i], lats[i + 1]
-            lon_min, lon_max = lons[j], lons[j + 1]
+    for i in range(len(lats)):
+        for j in range(len(lons)):
+            lat_min, lat_max = sorted((lat_edges[i], lat_edges[i + 1]))
+            lon_min, lon_max = sorted((lon_edges[j], lon_edges[j + 1]))
 
-            level = RiskLevel(int(risk_map[i, j]))
-            if level < 0:
+            raw_level = int(risk_map[i, j])
+            if raw_level < 0:
                 continue
+            level = RiskLevel(raw_level)
             color = RISK_COLORS[level]
             popup_html = f"<b>Risk Level:</b> {RISK_LABELS[level]}"
 
@@ -79,4 +108,4 @@ def create_interactive_map(
     if risk_summary:
         _add_summary_panel(folium_map, risk_summary)
     folium_map.save(output_path)
-    print(f"Interactive risk map saved to {output_path}")
+    LOGGER.info("Interactive risk map saved to %s", output_path)

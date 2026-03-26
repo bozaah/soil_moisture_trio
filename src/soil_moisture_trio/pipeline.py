@@ -1,3 +1,4 @@
+import logging
 import os
 from datetime import date
 from typing import Any, Dict, Optional
@@ -11,6 +12,8 @@ from src.soil_moisture_trio.config import ClassifierConfig
 from src.soil_moisture_trio.data_sources import WeatherToolsSiloLoader, WeatherToolsResult
 from src.soil_moisture_trio.risk import assess_risk_levels
 
+LOGGER = logging.getLogger(__name__)
+
 
 class DryWetClassifierPipeline:
     def __init__(self, config: Optional[ClassifierConfig] = None):
@@ -21,7 +24,7 @@ class DryWetClassifierPipeline:
         self.valid_mask_grid: Optional[np.ndarray] = None
         self.time_metadata: Optional[Dict[str, str]] = None
         self._silo_loader: Optional[WeatherToolsSiloLoader] = None
-        print(f"Pipeline initialized with config: {self.config.model_dump()}")
+        LOGGER.info("Pipeline initialized with config: %s", self.config.model_dump())
 
     @staticmethod
     def _derive_bounds_from_gpkg(config: ClassifierConfig, buffer: float = 0.1) -> ClassifierConfig:
@@ -29,9 +32,13 @@ class DryWetClassifierPipeline:
         import geopandas as gpd
         gdf = gpd.read_file(config.boundary_gpkg).to_crs("EPSG:4326")
         minx, miny, maxx, maxy = gdf.total_bounds  # (min_lon, min_lat, max_lon, max_lat)
-        print(
-            f"Boundary file bounds (EPSG:4326): lon {minx:.4f}–{maxx:.4f}, lat {miny:.4f}–{maxy:.4f}. "
-            f"Applying {buffer}° buffer."
+        LOGGER.info(
+            "Boundary file bounds (EPSG:4326): lon %.4f-%.4f, lat %.4f-%.4f. Applying %.1f° buffer.",
+            minx,
+            maxx,
+            miny,
+            maxy,
+            buffer,
         )
         return config.model_copy(update={
             "min_lat": round(miny - buffer, 6),
@@ -126,7 +133,7 @@ class DryWetClassifierPipeline:
 
     def _load_real_netcdf(self, file_path: str, var_name: str) -> tuple[np.ndarray, Dict[str, str]]:
         """Load a single variable from NetCDF and average over the requested time window."""
-        print(f"Loading {var_name} from {file_path}...")
+        LOGGER.info("Loading %s from %s", var_name, file_path)
 
         is_remote_netcdf = (
             'thredds.nci.org.au' in file_path
@@ -162,8 +169,7 @@ class DryWetClassifierPipeline:
                 start_idx = stop_idx = None
 
             if start_idx is not None and stop_idx is not None and len(band_values) >= stop_idx:
-                band_slice = slice(band_values[start_idx], band_values[stop_idx - 1])
-                data_array = data_array.sel(band=band_slice).mean(dim='band')
+                data_array = data_array.isel(band=slice(start_idx, stop_idx)).mean(dim='band')
             else:
                 data_array = data_array.isel(band=0)
         data = data_array.values
@@ -175,6 +181,8 @@ class DryWetClassifierPipeline:
             'soil_moisture': {
                 'pct_url': f'https://thredds.nci.org.au/thredds/dodsC/iu04/australian-water-outlook/historical/v1/AWRALv7/processed/deciles/day/sm_pct_{self.config.year}.nc',
                 'pct_var': 'sm_pct',
+                'legacy_url': f'https://thredds.nci.org.au/thredds/dodsC/iu04/australian-water-outlook/historical/v1/AWRALv7/processed/values/day/sm_pct_{self.config.year}.nc',
+                'legacy_var': 'sm_pct',
             },
             'temperature': {
                 'url': f'https://s3-ap-southeast-2.amazonaws.com/silo-open-data/Official/annual/max_temp/{self.config.year}.max_temp.nc',
@@ -186,33 +194,7 @@ class DryWetClassifierPipeline:
             }
         }
 
-        pct_url = data_sources['soil_moisture']['pct_url']
-        pct_var = data_sources['soil_moisture']['pct_var']
-        try:
-            soil_moisture_data, soil_meta = self._load_real_netcdf(pct_url, pct_var)
-            soil_moisture_data = np.asarray(soil_moisture_data, dtype=float)
-            try:
-                original_max = float(np.nanmax(soil_moisture_data))
-            except Exception:
-                original_max = float('nan')
-
-            if np.isnan(original_max):
-                print("Loaded soil moisture decile product contains no finite values.")
-            elif original_max > 1.1:
-                # Unexpected: decile product should always be 0-1. Apply defensive conversion.
-                soil_moisture_data = soil_moisture_data / 100.0
-                print(f"WARNING: sm_pct decile unexpectedly in percent scale (max={original_max:.3f}); converted to 0-1.")
-            else:
-                print(f"sm_pct decile product confirmed 0-1 scale (max={original_max:.3f}).")
-
-            with xr.open_dataset(pct_url) as ds:
-                lats = ds['latitude'].values
-                lons = ds['longitude'].values
-        except Exception as exc:
-            raise RuntimeError(
-                f"Failed to load soil moisture decile product '{pct_url}': {exc}.\n"
-                "This pipeline requires the AWRAL 'sm_pct' decile product (percentile rank 0-1)."
-            )
+        soil_moisture_data, soil_meta, lats, lons = self._load_soil_moisture_data(data_sources['soil_moisture'])
 
         time_metas = [soil_meta]
         data: Dict[str, np.ndarray] = {}
@@ -229,7 +211,10 @@ class DryWetClassifierPipeline:
                 data.update(self._map_silo_variables(silo_result.data))
                 time_metas.append(silo_result.time_metadata)
             except Exception as exc:
-                print(f"weather_tools COG loader failed ({exc}). Falling back to SILO NetCDF files.")
+                LOGGER.warning(
+                    "weather_tools COG loader failed (%s). Falling back to SILO NetCDF files.",
+                    exc,
+                )
                 data, clipped_lats, clipped_lons, fallback_metas = self._load_silo_via_netcdf_and_align(
                     soil_moisture_data, lats, lons, data_sources,
                 )
@@ -256,6 +241,86 @@ class DryWetClassifierPipeline:
             'lons': clipped_lons,
             'time_metadata': self.time_metadata,
         }
+
+    def _load_soil_moisture_data(
+        self,
+        soil_source: Dict[str, str],
+    ) -> tuple[np.ndarray, Dict[str, str], np.ndarray, np.ndarray]:
+        pct_url = soil_source['pct_url']
+        pct_var = soil_source['pct_var']
+        try:
+            soil_moisture_data, soil_meta = self._load_real_netcdf(pct_url, pct_var)
+            soil_moisture_data = self._normalize_sm_pct_decile(soil_moisture_data)
+            lats, lons = self._load_spatial_coords(pct_url)
+            return soil_moisture_data, soil_meta, lats, lons
+        except Exception as exc:
+            if not self.config.allow_legacy_sm:
+                raise RuntimeError(
+                    f"Failed to load soil moisture decile product '{pct_url}': {exc}.\n"
+                    "This pipeline requires the AWRAL 'sm_pct' decile product (percentile rank 0-1). "
+                    "Re-run with --allow-legacy-sm only if you explicitly accept the raw-values fallback."
+                ) from exc
+
+            legacy_url = soil_source['legacy_url']
+            legacy_var = soil_source['legacy_var']
+            LOGGER.warning(
+                "Failed to load decile sm_pct product (%s). Falling back to legacy raw-values product %s. "
+                "This compatibility mode is not scientifically equivalent to percentile-rank operation.",
+                exc,
+                legacy_url,
+            )
+            legacy_data, legacy_meta = self._load_real_netcdf(legacy_url, legacy_var)
+            legacy_data = self._normalize_legacy_sm(legacy_data)
+            lats, lons = self._load_spatial_coords(legacy_url)
+            return legacy_data, legacy_meta, lats, lons
+
+    @staticmethod
+    def _load_spatial_coords(file_path: str) -> tuple[np.ndarray, np.ndarray]:
+        with xr.open_dataset(file_path) as ds:
+            return ds['latitude'].values, ds['longitude'].values
+
+    @staticmethod
+    def _safe_nanmax(values: np.ndarray) -> float:
+        try:
+            return float(np.nanmax(values))
+        except Exception:
+            return float('nan')
+
+    def _normalize_sm_pct_decile(self, soil_moisture_data: np.ndarray) -> np.ndarray:
+        soil_moisture_data = np.asarray(soil_moisture_data, dtype=float)
+        original_max = self._safe_nanmax(soil_moisture_data)
+        if np.isnan(original_max):
+            LOGGER.warning("Loaded soil moisture decile product contains no finite values.")
+        elif original_max > 1.1:
+            soil_moisture_data = soil_moisture_data / 100.0
+            LOGGER.warning(
+                "sm_pct decile unexpectedly in percent scale (max=%.3f); converted to 0-1.",
+                original_max,
+            )
+        else:
+            LOGGER.info("sm_pct decile product confirmed 0-1 scale (max=%.3f).", original_max)
+        return soil_moisture_data
+
+    def _normalize_legacy_sm(self, soil_moisture_data: np.ndarray) -> np.ndarray:
+        soil_moisture_data = np.asarray(soil_moisture_data, dtype=float)
+        original_max = self._safe_nanmax(soil_moisture_data)
+        if np.isnan(original_max):
+            LOGGER.warning("Loaded legacy soil moisture product contains no finite values.")
+            return soil_moisture_data
+
+        if original_max > 1.1:
+            soil_moisture_data = soil_moisture_data / 100.0
+            LOGGER.warning(
+                "Legacy soil moisture product appears to be in percent scale (max=%.3f); converted to 0-1.",
+                original_max,
+            )
+        else:
+            LOGGER.warning(
+                "Legacy soil moisture product loaded in 0-1 scale (max=%.3f). "
+                "Risk outputs remain compatibility-only because thresholds are calibrated for decile ranks.",
+                original_max,
+            )
+        return soil_moisture_data
 
     def _load_silo_via_weather_tools(
         self,
@@ -361,13 +426,13 @@ class DryWetClassifierPipeline:
         if self.config.boundary_gpkg is not None:
             poly_mask = self._build_polygon_mask(data["lats"], data["lons"])
             self.valid_mask_grid = self.valid_mask_grid & poly_mask
-            print(f"Polygon mask applied. Cells inside boundary: {int(poly_mask.sum())} of {poly_mask.size}")
+            LOGGER.info("Polygon mask applied. Cells inside boundary: %d of %d", int(poly_mask.sum()), poly_mask.size)
         if not self.valid_mask_grid.any():
             raise ValueError("No valid grid cells after masking NaN values.")
 
         self.data_grids = data
         valid_count = int(self.valid_mask_grid.sum())
-        print(f"Data prepared. Valid cells: {valid_count} of {soil.size}")
+        LOGGER.info("Data prepared. Valid cells: %d of %d", valid_count, soil.size)
 
     def classify_grid(self) -> np.ndarray:
         """
@@ -402,7 +467,7 @@ class DryWetClassifierPipeline:
         dry_count = int(np.sum(classification == 0))
         wet_count = int(np.sum(classification == 1))
         invalid_count = int(np.sum(classification < 0))
-        print(f"Grid classified. Dry: {dry_count}, Wet: {wet_count}, No data: {invalid_count}")
+        LOGGER.info("Grid classified. Dry: %d, Wet: %d, No data: %d", dry_count, wet_count, invalid_count)
         return classification
 
     def assess_risk(self) -> Dict[str, Any]:

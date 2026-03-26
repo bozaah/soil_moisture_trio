@@ -1,10 +1,13 @@
 import argparse
+import logging
 from pathlib import Path
 
 from src.soil_moisture_trio.config import ClassifierConfig
 from src.soil_moisture_trio.pipeline import DryWetClassifierPipeline
 from src.soil_moisture_trio.risk import save_risk_outputs
 from src.soil_moisture_trio.plot import save_risk_plot, plot_dryness_diagnostics
+
+LOGGER = logging.getLogger(__name__)
 
 
 def run_pipeline(
@@ -18,6 +21,7 @@ def run_pipeline(
     start_date: str | None = None,
     end_date: str | None = None,
     silo_variables: list[str] | None = None,
+    allow_legacy_sm: bool | None = None,
     silo_cache_dir: str | None = None,
     silo_cache_max_mb: int | None = None,
     use_silo_cog_loader: bool | None = None,
@@ -49,6 +53,8 @@ def run_pipeline(
         config_kwargs["end_date"] = end_date
     if silo_variables:
         config_kwargs["silo_variables"] = silo_variables
+    if allow_legacy_sm is not None:
+        config_kwargs["allow_legacy_sm"] = allow_legacy_sm
     if silo_cache_dir is not None:
         config_kwargs["silo_cache_dir"] = silo_cache_dir
     if silo_cache_max_mb is not None:
@@ -78,7 +84,11 @@ def run_pipeline(
     # ------------------------------------------------------------------
     pipeline.prepare_data()
     if pipeline.time_metadata:
-        print(f"Time window: {pipeline.time_metadata['time_start']} to {pipeline.time_metadata['time_end']}")
+        LOGGER.info(
+            "Time window: %s to %s",
+            pipeline.time_metadata["time_start"],
+            pipeline.time_metadata["time_end"],
+        )
 
     # ------------------------------------------------------------------
     # 3. Assess risk
@@ -88,12 +98,12 @@ def run_pipeline(
     risk_summary = risk_report["summary"]
     stress_index = risk_report["stress_index"]
 
-    print("Risk summary (counts):")
+    LOGGER.info("Risk summary (counts):")
     preferred_order = ["critical", "alert", "watch", "low", "invalid", "valid_cells", "total_cells"]
     for key in preferred_order:
         if key in risk_summary:
             stats = risk_summary[key]
-            print(f"  {key}: {stats['count']} cells ({stats['percentage']:.2%})")
+            LOGGER.info("  %s: %s cells (%.2f%%)", key, stats["count"], stats["percentage"] * 100)
 
     # ------------------------------------------------------------------
     # 4. Save NetCDF and JSON summary
@@ -107,13 +117,13 @@ def run_pipeline(
             base_path=risk_output_prefix,
             time_metadata=pipeline.time_metadata,
         )
-        print(f"Risk layer saved to {files['netcdf']} and summary to {files['summary']}")
+        LOGGER.info("Risk layer saved to %s and summary to %s", files["netcdf"], files["summary"])
 
     # ------------------------------------------------------------------
     # 5. Visualisation outputs
     # ------------------------------------------------------------------
     if risk_plot_path:
-        print("Generating risk map with continuous dryness panel...")
+        LOGGER.info("Generating risk map with continuous dryness panel...")
         plot_path = save_risk_plot(
             risk_map=risk_map,
             stress_index=stress_index,
@@ -123,7 +133,7 @@ def run_pipeline(
             time_metadata=pipeline.time_metadata,
             boundary_gpkg=boundary_gpkg,
         )
-        print(f"Risk PNG exported to {plot_path}")
+        LOGGER.info("Risk PNG exported to %s", plot_path)
 
         diag_path = Path(risk_plot_path).with_name("stress_diagnostics.png")
         plot_dryness_diagnostics(
@@ -132,7 +142,7 @@ def run_pipeline(
             stress_index=stress_index,
             output_path=diag_path,
         )
-        print(f"Diagnostic plots exported to {diag_path}")
+        LOGGER.info("Diagnostic plots exported to %s", diag_path)
 
     if visualize:
         from src.soil_moisture_trio.visualize import create_interactive_map
@@ -149,6 +159,7 @@ def run_pipeline(
 # Entry point
 # ----------------------------------------------------------------------
 if __name__ == "__main__":
+    logging.basicConfig(level=logging.INFO, format="%(levelname)s %(name)s: %(message)s")
     parser = argparse.ArgumentParser(description="Run the Soil Moisture Trio pipeline.")
     parser.add_argument("--visualize", action="store_true", help="Generate the Folium map output.")
     parser.add_argument("--output-path", default="classification_map.html", help="HTML output path.")
@@ -159,6 +170,11 @@ if __name__ == "__main__":
     parser.add_argument("--start-date", type=str, default=None)
     parser.add_argument("--end-date", type=str, default=None)
     parser.add_argument("--silo-variable", dest="silo_variables", action="append", default=None)
+    parser.add_argument(
+        "--allow-legacy-sm",
+        action="store_true",
+        help="Allow fallback to the legacy AWRAL raw-values soil-moisture product if the decile product cannot be loaded.",
+    )
     parser.add_argument("--silo-cache-dir", default=None)
     parser.add_argument("--silo-cache-max-mb", type=int, default=None)
     parser.add_argument("--silo-overview-level", type=int, default=None)
@@ -184,6 +200,7 @@ if __name__ == "__main__":
         start_date=args.start_date,
         end_date=args.end_date,
         silo_variables=args.silo_variables,
+        allow_legacy_sm=args.allow_legacy_sm,
         silo_cache_dir=args.silo_cache_dir,
         silo_cache_max_mb=args.silo_cache_max_mb,
         use_silo_cog_loader=args.use_silo_cog_loader,

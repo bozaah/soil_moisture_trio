@@ -1,4 +1,5 @@
 from datetime import datetime
+import logging
 from pathlib import Path
 from typing import Dict, Optional
 
@@ -11,15 +12,17 @@ from matplotlib.colors import BoundaryNorm, ListedColormap
 
 from src.soil_moisture_trio.risk import RISK_COLORS, RISK_LABELS, RiskLevel
 
+LOGGER = logging.getLogger(__name__)
+
 
 # ---------------------------------------------------------------------
 # Main combined plot: categorical map + continuous dryness panel
 # ---------------------------------------------------------------------
 def save_risk_plot(
     risk_map: np.ndarray,
-    stress_index: Optional[np.ndarray],
     lats: np.ndarray,
     lons: np.ndarray,
+    stress_index: Optional[np.ndarray] = None,
     output_path: str = "risk_map.png",
     time_metadata: Optional[Dict[str, str]] = None,
     boundary_gpkg: Optional[str] = None,
@@ -36,21 +39,6 @@ def save_risk_plot(
         output_path: Filepath for PNG.
         time_metadata: Optional date metadata dict.
     """
-    # Backwards-compatibility: older callers used signature
-    # save_risk_plot(risk_map, lats, lons, output_path)
-    # while newer callers pass stress_index as second arg. Detect the legacy
-    # positional ordering and reorder arguments accordingly.
-    def _is_arraylike(x):
-        return isinstance(x, (list, tuple, np.ndarray))
-
-    # If the third positional arg (lons) is not array-like but the first two are,
-    # it's likely the caller used the old signature: (risk_map, lats, lons, output)
-    if not _is_arraylike(lons) and _is_arraylike(stress_index) and _is_arraylike(lats):
-        output_path = lons  # third positional was actually output_path
-        lons = lats  # second positional was actually lons
-        lats = stress_index  # first positional after risk_map was lats
-        stress_index = None
-
     risk_map = np.asarray(risk_map)
     # Allow callers to omit the continuous stress index (None). In that case derive a
     # numeric fallback from the categorical `risk_map` so plotting still works.
@@ -177,7 +165,7 @@ def plot_dryness_diagnostics(
     # Detect and mask obviously-bad VPD values (e.g., unit/scale errors)
     extreme_mask = np.abs(vpd_flat) > 10000
     if extreme_mask.any():
-        print(f"Warning: {int(extreme_mask.sum())} extreme VPD values detected; masking for diagnostics.")
+        LOGGER.warning("Detected %d extreme VPD values; masking for diagnostics.", int(extreme_mask.sum()))
         vpd_flat[extreme_mask] = np.nan
 
     # Build final valid mask

@@ -8,7 +8,7 @@ import xarray as xr
 from src.soil_moisture_trio.config import ClassifierConfig
 from src.soil_moisture_trio.pipeline import DryWetClassifierPipeline
 from src.soil_moisture_trio.plot import save_risk_plot
-from src.soil_moisture_trio.risk import RiskLevel, assess_risk_levels, save_risk_outputs
+from src.soil_moisture_trio.risk import RISK_LABELS, RiskLevel, assess_risk_levels, save_risk_outputs
 
 
 def _mock_real_data(with_nan: bool = False) -> dict:
@@ -131,15 +131,10 @@ def test_pipeline_assess_risk_returns_summary(monkeypatch):
 def test_assess_risk_levels_categorizes_cells():
     config = ClassifierConfig(
         moisture_threshold=0.25,
-        severe_moisture_threshold=0.15,
         temp_threshold=30.0,
         vpd_threshold=20.0,
-        alert_moisture_threshold=0.2,
-        alert_temp_threshold=33.0,
-        alert_vpd_threshold=22.0,
         critical_temp_threshold=35.0,
         critical_vpd_threshold=30.0,
-        watch_margin=0.02,
     )
     soil = np.array([[0.10, 0.22], [0.31, 0.26]])
     temp = np.array([[36.0, 34.0], [28.0, 29.0]])
@@ -162,7 +157,9 @@ def test_assess_risk_levels_categorizes_cells():
 
     for level in RiskLevel:
         assert summary[level.name.lower()]['count'] == int(np.sum(risk_map == level))
+        assert summary[level.name.lower()]['label'] == RISK_LABELS[level]
     assert summary['total_cells']['count'] == risk_map.size
+    assert "elevated" not in summary
 
 
 def test_assess_risk_levels_handles_invalid_cells():
@@ -188,11 +185,10 @@ def test_save_risk_outputs_writes_files(tmp_path):
     lats = np.array([0.0, 1.0])
     lons = np.array([10.0, 11.0])
     summary = {
-        'low': {'count': 1, 'percentage': 1 / 3, 'label': 'Wet / Low Risk'},
-        'watch': {'count': 0, 'percentage': 0.0, 'label': 'Watch (approaching dry thresholds)'},
-        'alert': {'count': 1, 'percentage': 1 / 3, 'label': 'Alert (dry onset / heat stress)'},
-        'elevated': {'count': 0, 'percentage': 0.0, 'label': 'Elevated Dry Risk'},
-        'critical': {'count': 1, 'percentage': 1 / 3, 'label': 'Critical Dry Risk'},
+        'low': {'count': 1, 'percentage': 1 / 3, 'label': 'Low'},
+        'watch': {'count': 0, 'percentage': 0.0, 'label': 'Watch'},
+        'alert': {'count': 1, 'percentage': 1 / 3, 'label': 'Alert'},
+        'critical': {'count': 1, 'percentage': 1 / 3, 'label': 'Critical'},
         'invalid': {'count': 1, 'percentage': 0.25, 'label': 'No Data'},
         'valid_cells': {'count': 3, 'percentage': 0.75, 'label': 'Valid grid cells'},
         'total_cells': {'count': 4, 'percentage': 1.0, 'label': 'Total grid cells'},
@@ -223,7 +219,59 @@ def test_save_risk_plot_creates_png(tmp_path):
     lons = np.array([10.0, 11.0])
     output = tmp_path / "plots" / "risk.png"
 
-    path = save_risk_plot(risk_map, lats, lons, output)
+    path = save_risk_plot(risk_map=risk_map, lats=lats, lons=lons, output_path=output)
     assert path.exists()
     assert path.suffix == ".png"
     assert path.stat().st_size > 0
+
+
+def test_load_soil_moisture_data_raises_when_decile_fails_without_opt_in(monkeypatch):
+    pipeline = DryWetClassifierPipeline(ClassifierConfig(allow_legacy_sm=False))
+
+    def fake_load_real_netcdf(file_path, var_name):
+        raise OSError("decile unavailable")
+
+    monkeypatch.setattr(pipeline, "_load_real_netcdf", fake_load_real_netcdf)
+
+    with pytest.raises(RuntimeError, match="allow-legacy-sm"):
+        pipeline._load_soil_moisture_data(
+            {
+                "pct_url": "decile-url",
+                "pct_var": "sm_pct",
+                "legacy_url": "legacy-url",
+                "legacy_var": "sm_pct",
+            }
+        )
+
+
+def test_load_soil_moisture_data_falls_back_to_legacy_when_opted_in(monkeypatch):
+    pipeline = DryWetClassifierPipeline(ClassifierConfig(allow_legacy_sm=True))
+    calls = []
+
+    def fake_load_real_netcdf(file_path, var_name):
+        calls.append((file_path, var_name))
+        if file_path == "decile-url":
+            raise OSError("decile unavailable")
+        return np.array([[10.0, 20.0], [30.0, 40.0]], dtype=np.float32), {"time_start": "2025-01-01"}
+
+    def fake_load_spatial_coords(file_path):
+        assert file_path == "legacy-url"
+        return np.array([-35.0, -34.0]), np.array([115.0, 116.0])
+
+    monkeypatch.setattr(pipeline, "_load_real_netcdf", fake_load_real_netcdf)
+    monkeypatch.setattr(pipeline, "_load_spatial_coords", fake_load_spatial_coords)
+
+    soil, meta, lats, lons = pipeline._load_soil_moisture_data(
+        {
+            "pct_url": "decile-url",
+            "pct_var": "sm_pct",
+            "legacy_url": "legacy-url",
+            "legacy_var": "sm_pct",
+        }
+    )
+
+    assert calls == [("decile-url", "sm_pct"), ("legacy-url", "sm_pct")]
+    np.testing.assert_allclose(soil, np.array([[0.1, 0.2], [0.3, 0.4]], dtype=float))
+    assert meta == {"time_start": "2025-01-01"}
+    np.testing.assert_allclose(lats, np.array([-35.0, -34.0]))
+    np.testing.assert_allclose(lons, np.array([115.0, 116.0]))

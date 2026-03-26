@@ -1,7 +1,7 @@
 [project]
 name = "soil-moisture-trio"
 version = "0.1.0"
-description = "Add your description here"
+description = "Rule-based drought risk monitoring pipeline for Australian soil moisture, heat, and VPD stress."
 readme = "README.md"
 requires-python = ">=3.12"
 dependencies = [
@@ -21,4 +21,9 @@ dependencies = [
 [dependency-groups]
 dev = [
     "pytest>=8.0.0",
+]
+
+[tool.pytest.ini_options]
+filterwarnings = [
+    "ignore:numpy.ndarray size changed, may indicate binary incompatibility\\..*:RuntimeWarning",
 ]

@@ -12,14 +12,9 @@ class ClassifierConfig(BaseModel):
     temp_threshold: float = Field(30.0, ge=0, description="High temperature threshold (°C)")
     vpd_threshold: float = Field(20.0, ge=0, description="High VPD threshold (hPa)")
 
-    # --- Risk level thresholds (percentile rank 0–1) ---
-    severe_moisture_threshold: float = Field(0.10, ge=0, le=1, description="Critical/Alert boundary (≤ 0.10 → Critical)")
-    critical_temp_threshold: float = Field(40.0, ge=0, description="Critical heat threshold (°C)")
-    critical_vpd_threshold: float = Field(32.0, ge=0, description="Critical VPD threshold (hPa)")
-    watch_margin: float = Field(0.10, ge=0, description="Alert/Watch boundary percentile rank (≤ 0.10 → Critical)")
-    alert_moisture_threshold: float = Field(0.20, ge=0, le=1, description="Watch/Alert boundary (0.10–0.20 → Alert)")
-    alert_temp_threshold: float = Field(32.0, ge=0, description="Temperature threshold for Alert level (°C)")
-    alert_vpd_threshold: float = Field(24.0, ge=0, description="VPD threshold for Alert level (hPa)")
+    # --- Stress index normalisation + category thresholds ---
+    critical_temp_threshold: float = Field(40.0, ge=0, description="Temperature normalisation ceiling for the stress index (°C)")
+    critical_vpd_threshold: float = Field(32.0, ge=0, description="VPD normalisation ceiling for the stress index (hPa)")
 
     # --- Spatial bounds ---
     year: int = Field(2024, ge=1900, le=2100, description="Year for data retrieval")
@@ -38,6 +33,10 @@ class ClassifierConfig(BaseModel):
         description="SILO variables to request via weather_tools",
     )
     use_silo_cog_loader: bool = Field(True, description="Fetch SILO data via weather_tools COG loader")
+    allow_legacy_sm: bool = Field(
+        False,
+        description="Allow fallback to the legacy AWRAL raw-values soil-moisture product when the decile product is unavailable.",
+    )
     silo_cache_dir: Path = Field(
         default_factory=lambda: Path.home() / ".cache" / "soil_moisture_trio" / "silo",
         description="Directory for persisting SILO GeoTIFF downloads. Created automatically if absent.",

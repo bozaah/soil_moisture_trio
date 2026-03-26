@@ -1,10 +1,13 @@
 """Render a policy bulletin from a risk summary JSON and optional PNG map."""
 import argparse
 import json
+import logging
 from datetime import date
 from pathlib import Path
 
 from jinja2 import Environment, FileSystemLoader
+
+LOGGER = logging.getLogger(__name__)
 
 
 def _relative_png(map_png: Path | None, output: Path) -> str | None:
@@ -56,10 +59,11 @@ def render_bulletin(summary_json: Path, map_png: Path | None, output: Path, regi
 
     output.parent.mkdir(parents=True, exist_ok=True)
     output.write_text(template.render(**context), encoding="utf-8")
-    print(f"Bulletin written to {output}")
+    LOGGER.info("Bulletin written to %s", output)
 
 
 if __name__ == "__main__":
+    logging.basicConfig(level=logging.INFO, format="%(levelname)s %(name)s: %(message)s")
     parser = argparse.ArgumentParser(description="Render a drought risk bulletin from a summary JSON.")
     parser.add_argument("--summary-json", required=True, type=Path, help="Path to *_summary.json")
     parser.add_argument("--map-png", default=None, type=Path, help="Path to risk map PNG (optional)")

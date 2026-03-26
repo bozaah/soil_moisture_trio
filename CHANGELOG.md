@@ -4,6 +4,36 @@ All notable changes per sprint/iteration. Format: `## [sprint] YYYY-MM-DD — Ti
 
 ---
 
+## [Sprint 10] 2026-03-26 — Audit remediation pass 1
+
+### Changed
+
+- `tests/test_moisture_ranges.py` — replaced top-level remote access and `sys.exit()` behavior with a manual diagnostic test gated by `RUN_REMOTE_DIAGNOSTICS=1`, restoring clean default pytest collection
+- `src/soil_moisture_trio/visualize.py` — fixed Folium rectangle generation to render every valid grid cell from centre coordinates; invalid `-1` sentinel cells now skip safely before `RiskLevel` coercion; summary panel now follows the shared runtime summary order
+- `src/soil_moisture_trio/risk.py` — normalised the public summary contract: `critical/alert/watch/low` are the only risk buckets, and the top label is now `Critical` instead of `High`
+- `tests/test_pipeline.py` — updated expected labels/keys to match the runtime contract and added assertions that the removed `elevated` bucket does not reappear
+- `src/soil_moisture_trio/pipeline.py` — hardened the raster-band fallback by switching from band-label slicing to positional slicing when averaging a selected time window
+- `main.py`, `src/soil_moisture_trio/pipeline.py`, `src/soil_moisture_trio/visualize.py`, `src/soil_moisture_trio/plot.py`, `scripts/render_bulletin.py` — replaced touched `print()` status output with `logging`
+- `pyproject.toml` — replaced placeholder package description
+- `src/soil_moisture_trio/data_sources.py` — made SILO cache directories bbox-aware to stop mixed-bounds cache collisions; added validation for empty target grids, inverted dates, partial `weather_tools` payloads, malformed stacks, and source-grid/coordinate mismatches
+- `src/soil_moisture_trio/plot.py` — removed the legacy positional-argument shim from `save_risk_plot`
+- `src/soil_moisture_trio/config.py` — removed unused legacy threshold fields from the runtime config surface and added `allow_legacy_sm` as the only explicit compatibility switch
+- `main.py`, `src/soil_moisture_trio/pipeline.py` — added `--allow-legacy-sm` / `allow_legacy_sm`; the pipeline now hard-fails on decile `sm_pct` load errors by default and only falls back to the legacy raw-values `sm_pct` source when the opt-in flag is set, with a warning about scientific non-equivalence
+- `pyproject.toml` — added a targeted pytest warning filter for the environment-specific `numpy.ndarray size changed...` RuntimeWarning so the default test gate is noise-free
+
+### Added
+
+- `tests/test_visualize.py` — regression test proving the Folium output renders all valid cells instead of dropping the outer row/column
+- `sessions/2026-03-26-sprint10-audit-remediation.md` — sprint note for the first audit remediation pass
+- `tests/test_data_sources.py` — regression coverage for bbox-scoped SILO cache directories and loader failure handling
+- `tests/test_pipeline.py` — regression coverage for the explicit legacy soil-moisture fallback gate
+
+### Verified
+
+Default test baseline restored and expanded: `uv run pytest -q` now passes with `17 passed, 1 skipped`. Targeted regression checks also pass: `uv run pytest tests/test_pipeline.py tests/test_visualize.py -q` → `11 passed, 1 warning`; `uv run pytest tests/test_data_sources.py -q` → `4 passed`; `uv run pytest tests/test_pipeline.py -q` → `12 passed, 1 warning`.
+
+---
+
 ## [Sprint 9] 2026-03-25 — Boundary GeoPackage integration
 
 ### Added
