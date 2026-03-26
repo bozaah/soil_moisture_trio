@@ -31,7 +31,7 @@ Python · xarray · rioxarray · pydantic · jinja2 · folium · scipy · `uv`
 
 ## Operational Notes
 
-**SILO cache:** defaults to `~/.cache/soil_moisture_trio/silo` — persistent and created automatically. Different bounding box runs must use separate cache dirs (B22 — cache key does not include bbox):
+**SILO cache:** defaults to `~/.cache/soil_moisture_trio/silo` — persistent and created automatically. Cached GeoTIFFs are stored beneath bbox-scoped subdirectories inside that cache root, so repeated runs for the same bounds reuse tiles without cross-bbox collisions:
 
 ```bash
 --silo-cache-dir ~/.cache/soil_moisture_trio/silo_swaz
@@ -82,13 +82,17 @@ All outputs (`.nc`, `_summary.json`, risk PNG, `stress_diagnostics.png`) land in
 ## Session History
 
 - [CHANGELOG.md](CHANGELOG.md) — per-sprint changes
-- [sessions/2026-03-18-session-01.md](sessions/2026-03-18-session-01.md) — docs hygiene + code audit
+- [sessions/2026-03-18_docs-hygiene-audit.md](sessions/2026-03-18_docs-hygiene-audit.md) — docs hygiene + code audit
+- [sessions/2026-03-18-remove-catboost.md](sessions/2026-03-18-remove-catboost.md) — CatBoost removal and rule-based classifier transition
 - [sessions/2026-03-18_q2-wa-verification.md](sessions/2026-03-18_q2-wa-verification.md) — Q2 2025 WA run + regression checks
 - [sessions/2026-03-18_2026-ytd-run.md](sessions/2026-03-18_2026-ytd-run.md) — Jan–Mar 2026 WA run; AWRAL unit change noted; cache location documented
 - [sessions/2026-03-23-decile-calibration.md](sessions/2026-03-23-decile-calibration.md) — Sprint 6: switch to decile product; B1/B3 resolved; calibration baseline downloaded
 - [sessions/2026-03-25-sprint7-persistent-cache-bulletin.md](sessions/2026-03-25-sprint7-persistent-cache-bulletin.md) — Sprint 7: persistent cache, bulletin template, moisture_threshold recalibration
 - [sessions/2026-03-25-sprint8-plot-output-fixes.md](sessions/2026-03-25-sprint8-plot-output-fixes.md) — Sprint 8: bulletin PNG path fix, south y-axis buffer, SM histogram, --output-dir flag
 - [sessions/2026-03-25-sprint9-boundary-gpkg.md](sessions/2026-03-25-sprint9-boundary-gpkg.md) — Sprint 9: boundary GeoPackage integration, polygon masking, --boundary-gpkg flag, B24 rangelands backlog
+- [sessions/2026-03-26-sprint10-audit-remediation.md](sessions/2026-03-26-sprint10-audit-remediation.md) — Sprint 10 audit remediation pass 1: runtime fixes, fallback hardening, cache fix, logging cleanup
+- [sessions/2026-03-26-sprint10-doc-sync.md](sessions/2026-03-26-sprint10-doc-sync.md) — Sprint 10 audit remediation pass 2: docs alignment, backlog cleanup, repo metadata updates
+- [sessions/2026-03-26-sprint10-live-verification.md](sessions/2026-03-26-sprint10-live-verification.md) — Sprint 10 verification pass 3: lint baseline restored and fresh live SWAZ boundary run captured
 
 ## First Principles
 

@@ -35,8 +35,10 @@ Run with: `uv run python main.py [OPTIONS]`
 | Flag | Default | Description |
 |---|---|---|
 | `--silo-variable NAME` | `max_temp`, `vp_deficit` | Repeatable; SILO variable names |
+| `--allow-legacy-sm` | off | Allow fallback to the legacy raw-values AWRAL soil-moisture product if the decile product cannot be loaded |
+| `--use-silo-cog-loader` | auto/default on | Explicitly prefer the `weather_tools` GeoTIFF path |
 | `--no-silo-cog-loader` | — | Fall back to NetCDF downloads |
-| `--silo-cache-dir PATH` | temp | Local cache for GeoTIFF downloads |
+| `--silo-cache-dir PATH` | `~/.cache/soil_moisture_trio/silo` | Cache root for GeoTIFF downloads; bbox-specific subdirectories are created automatically |
 | `--silo-cache-max-mb INT` | 200 | Cache size limit in MB |
 | `--silo-overview-level INT` | — | Lower-res read (e.g., 1, 2) for testing |
 | `--silo-buffer-deg FLOAT` | 0.0 | Bounding box buffer in degrees |
@@ -81,3 +83,4 @@ uv run python scripts/render_bulletin.py \
 - Use `uv run ...` or activate `.venv` — do not install into system Python
 - AWRAL data requires network access to `thredds.nci.org.au`
 - SILO data via S3: no credentials required (`AWS_NO_SIGN_REQUEST=YES` set automatically)
+- For live runs, keep `--end-date` at most 2 days behind today because SILO publication lags

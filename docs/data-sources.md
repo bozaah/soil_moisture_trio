@@ -1,78 +1,99 @@
 # Data Sources
 
-## AWRAL Soil Moisture — Decile Product (`sm_pct`)
+## AWRAL Soil Moisture — Operational Product
 
-- **Source:** NCI THREDDS OPeNDAP
-- **Operational URL (daily, per year):** `https://thredds.nci.org.au/thredds/dodsC/iu04/australian-water-outlook/historical/v1/AWRALv7/processed/deciles/day/sm_pct_{YEAR}.nc`
-- **Calibration URL (monthly, 1911–2026):** `https://thredds.nci.org.au/thredds/dodsC/iu04/australian-water-outlook/historical/v1/AWRALv7/processed/deciles/month/sm_pct.nc`
-- **Variable:** `sm_pct` (confirmed via OPeNDAP probe 2026-03-23)
-- **Units:** `relative` — percentile rank 0–1, calibrated against the full 1911–present historical record for each location and day-of-year
-- **Pipeline handling:** No unit conversion needed (always 0–1). A defensive `max > 1.1` check is retained; it will warn if triggered but should never fire on the decile product.
+The pipeline's primary soil-moisture input is the AWRA-L v7 `sm_pct` decile product served from NCI THREDDS.
 
-| Product | Dimensions | Size (full Australia) |
-|---|---|---|
-| Daily decile (one year) | (366, 681, 841) | ~838 MB |
-| Monthly decile (1911–2026) | (1382, 681, 841) | ~3 GB |
-| Monthly decile — WA subset | (1382, 441, 341) | ~831 MB |
+- Source: NCI THREDDS OPeNDAP
+- Operational URL pattern:
+  `https://thredds.nci.org.au/thredds/dodsC/iu04/australian-water-outlook/historical/v1/AWRALv7/processed/deciles/day/sm_pct_{YEAR}.nc`
+- Variable: `sm_pct`
+- Units: percentile rank `0–1`
+- Grid: daily `(time, latitude, longitude)` at 0.05° resolution
+- Pipeline handling: the selected date window is averaged down to a 2D `(lat, lon)` grid
 
-WA calibration baseline downloaded to `data/awral_decile_sm_pct_WA_monthly.nc` (download: ~5.3 min via OPeNDAP decade-chunked).
+`_normalize_sm_pct_decile()` retains a defensive `max > 1.1` check and converts to `0–1` if needed, but the expected operational behavior is already `0–1`.
 
-- **Required:** Yes. Pipeline raises `RuntimeError` if `sm_pct` load fails.
-- **Dimensions:** `(time, latitude, longitude)` → averaged over requested window → 2D `(lat, lon)`
+### Decile vs Legacy Raw-Values Product
 
-### Migration note (Sprint 5 → Sprint 6)
+The decile product is the default and scientifically preferred path. If that load fails, the pipeline raises a `RuntimeError` unless the operator explicitly enables:
 
-Previously used `processed/values/day/sm_pct_{YEAR}.nc` (raw volumetric fraction, units varied by year). Switched to `processed/deciles/day/sm_pct_{YEAR}.nc` to resolve B1 (over-classification) and B3 (calibration). The raw-values URL unit table (2025: 0–100, 2026: 0–1) is no longer relevant.
+```bash
+--allow-legacy-sm
+```
 
-## SILO Variables
+That flag allows fallback to:
 
-- **Primary loader:** `weather_tools` COG (GeoTIFF) subsetter (`use_silo_cog_loader=True` by default)
-- **Fallback:** Direct SILO NetCDF from AWS S3 (`--no-silo-cog-loader`)
-- **NetCDF URL pattern (fallback):**
-  - `https://s3-ap-southeast-2.amazonaws.com/silo-open-data/Official/annual/max_temp/{YEAR}.max_temp.nc`
-  - `https://s3-ap-southeast-2.amazonaws.com/silo-open-data/Official/annual/vp_deficit/{YEAR}.vp_deficit.nc`
+`https://thredds.nci.org.au/thredds/dodsC/iu04/australian-water-outlook/historical/v1/AWRALv7/processed/values/day/sm_pct_{YEAR}.nc`
 
-### Variables used
+Important caveat: the legacy raw-values product is compatibility-only. The current thresholds and stress-index interpretation are calibrated for percentile-rank inputs, not raw volumetric values.
 
-| SILO name | Internal name | Units | Role |
+### Calibration Baseline
+
+The repository also carries a WA monthly decile subset for calibration and diagnostics:
+
+- File: `data/awral_decile_sm_pct_WA_monthly.nc`
+- Coverage: WA subset
+- Period: January 1911 to February 2026
+- Use: reference analysis and threshold sanity checks, not routine operational loading
+
+## SILO Temperature and VPD
+
+SILO provides the two atmospheric inputs used by the composite stress index.
+
+| SILO variable | Internal name | Units | Role |
 |---|---|---|---|
-| `max_temp` | `temperature` | °C | Heat stress proxy |
-| `vp_deficit` | `vpd` | hPa | Atmospheric dryness stressor |
+| `max_temp` | `temperature` | °C | Heat stress component |
+| `vp_deficit` | `vpd` | hPa | Atmospheric dryness component |
 
-### COG Loader Details (`WeatherToolsSiloLoader`)
+### Primary Path: weather_tools COG Loader
 
-- Calls `weather_tools.silo_geotiff.download_geotiff()` with a bounding-box polygon
-- Optional `buffer_degrees` expands the bbox for border effects
-- Downloaded tiles cached locally; cache pruned to `silo_cache_max_size_mb` (default 200 MB) by LRU
-- Multiple dates stacked → averaged via `np.nanmean` across time axis
-- Regridded to AWRAL lat/lon grid via nearest-neighbour interpolation
+`WeatherToolsSiloLoader` wraps `weather_tools.silo_geotiff.download_geotiff()` and is the default loading path (`use_silo_cog_loader=True`).
 
-### SILO GeoTIFF Cache
+Behavior:
 
-By default, tiles are cached to:
+- Requests only the selected variables and date range.
+- Builds a polygon from the requested bbox, optionally expanded by `silo_buffer_degrees`.
+- Reads GeoTIFF subsets, reduces the time stack with `np.nanmean`, and regrids to the target AWRAL coordinates using nearest-neighbor interpolation.
+- Returns explicit `time_start` / `time_end` metadata for the requested SILO window.
 
+### Fallback Path: SILO NetCDF
+
+If the COG loader fails, or if the run is started with `--no-silo-cog-loader`, the pipeline falls back to the annual SILO NetCDF files on public AWS S3:
+
+- `https://s3-ap-southeast-2.amazonaws.com/silo-open-data/Official/annual/max_temp/{YEAR}.max_temp.nc`
+- `https://s3-ap-southeast-2.amazonaws.com/silo-open-data/Official/annual/vp_deficit/{YEAR}.vp_deficit.nc`
+
+The pipeline sets `AWS_NO_SIGN_REQUEST=YES` automatically for these public buckets.
+
+## SILO Cache Layout
+
+The default cache root is:
+
+```text
+~/.cache/soil_moisture_trio/silo
 ```
-~/.cache/soil_moisture_trio/silo/{variable}/{year}/{YYYYMMDD}.{variable}.tif
+
+The loader now scopes cached GeoTIFFs into a bbox-specific subdirectory:
+
+```text
+~/.cache/soil_moisture_trio/silo/bbox_<hash>/
 ```
 
-This directory is created automatically on first run. It is persistent across reboots and shared between runs, so re-running the same period incurs zero downloads.
+This means:
 
-To override the cache location:
+- repeated runs for the same bounds reuse the same cache contents
+- different bounding boxes do not collide inside the same cache root
+- cache pruning still applies across the full cache tree via `silo_cache_max_size_mb`
+
+Override the cache root with:
 
 ```bash
 --silo-cache-dir /path/to/custom/silo_cache
 ```
 
-Observed cache sizes from production runs (WA bbox, COG subsets):
+## Operational Constraints
 
-| Period | Variables | Files | Size |
-|---|---|---|---|
-| Q2 2025 (91 days) | max_temp + vp_deficit | 182 | ~40 MB |
-| Jan–Mar 2026 (74 days) | max_temp + vp_deficit | 148 | ~36 MB |
-| Combined on disk | | 330 | ~76 MB |
-
-Cache is keyed by `{variable}/{year}/{date}` — re-running the same period hits cache instantly (0 downloads).
-
-## Accessing Data
-
-Requires network access to NCI THREDDS (OPeNDAP) and either AWS S3 or `weather_tools` API. The pipeline sets `AWS_NO_SIGN_REQUEST=YES` for public S3 buckets. No authentication is needed for AWRAL historical data.
+- SILO is typically available with a 1 to 2 day lag. Set `--end-date` no later than today minus two days for live runs.
+- All three inputs must overlap in space and time. If any of soil moisture, temperature, or VPD is missing at a cell, that cell is marked invalid and excluded from summaries.
+- The pipeline requires `max_temp` and `vp_deficit` to be present in the SILO payload. Missing variables raise a clear `ValueError`.

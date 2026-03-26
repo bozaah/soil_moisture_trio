@@ -2,61 +2,73 @@
 
 ## Overview
 
-The risk layer translates CatBoost predictions + raw grids into a categorical risk map and a continuous stress index. It lives in `src/soil_moisture_trio/risk.py`.
+The operational risk layer is computed directly from soil moisture, temperature, and VPD in [`risk.py`](/Users/dpird-mac/Documents/DPIRD/Git/soil_moisture_trio/src/soil_moisture_trio/risk.py). There is no ML model in the current production path.
 
-The CatBoost classification (dry/wet) feeds into `assess_risk()` but the **risk categorisation itself** uses a physics-based stress index — not just the binary prediction. The classifier output is used to determine the valid-cell mask.
+`DryWetClassifierPipeline.assess_risk()` passes the prepared grids and valid mask into `assess_risk_levels()`, which returns:
+
+- `risk_map`
+- `summary`
+- `stress_index`
 
 ## Stress Index Formula
 
 ```python
-dryness    = clip((moisture_threshold - soil_moisture) / moisture_threshold, 0, 1)
+dryness = clip((moisture_threshold - soil_moisture) / moisture_threshold, 0, 1)
 temp_factor = clip(temperature / critical_temp_threshold, 0, 1)
-vpd_factor  = clip(vpd / critical_vpd_threshold, 0, 1)
+vpd_factor = clip(vpd / critical_vpd_threshold, 0, 1)
 
 stress_index = 0.6 * dryness + 0.25 * vpd_factor + 0.15 * temp_factor
 ```
 
-- Range: 0–1 (0 = no stress, 1 = maximum stress)
-- `moisture_threshold` and `critical_*_threshold` come from `ClassifierConfig`
-- **Weights (0.6/0.25/0.15) are hardcoded** in `risk.py:85` — not currently exposed via config
+Defaults come from `ClassifierConfig`:
 
-### Normaliser choices
+- `moisture_threshold = 0.50`
+- `critical_temp_threshold = 40.0`
+- `critical_vpd_threshold = 32.0`
 
-- Dryness: linear deficit from threshold to zero (zero moisture = fully dry)
-- Temperature: fraction of `critical_temp_threshold` (default 40°C)
-- VPD: fraction of `critical_vpd_threshold` (default 32 hPa)
+The weights are currently hardcoded.
 
-## Risk Categories (`RiskLevel` IntEnum)
+## Risk Categories
 
-| Level | Value | Label | stress_index | Colour |
-|---|---|---|---|---|
-| LOW | 0 | Low | < 0.35 | Blue `#2b83ba` |
-| WATCH | 1 | Watch | 0.35–0.60 | Green `#c7e9b4` |
-| ALERT | 2 | Alert | 0.60–0.85 | Orange `#fdae61` |
-| CRITICAL | 3 | High | ≥ 0.85 | Red `#d7191c` |
+| Level | Value | Label | Stress index |
+|---|---|---|---|
+| `LOW` | 0 | Low | `< 0.35` |
+| `WATCH` | 1 | Watch | `0.35–<0.60` |
+| `ALERT` | 2 | Alert | `0.60–<0.85` |
+| `CRITICAL` | 3 | Critical | `>= 0.85` |
 
-Invalid cells (ocean, NaN): encoded as `-1` in `risk_map`.
+Invalid cells are encoded as `-1`.
+
+## Valid Mask Behavior
+
+The risk model only evaluates cells marked valid by `prepare_data()`. A cell is excluded when:
+
+- soil moisture is missing
+- temperature is missing
+- VPD is missing
+- the cell falls outside the optional boundary polygon
+
+Excluded cells remain `-1` in the categorical map and `NaN` in the continuous stress layer.
 
 ## Outputs
 
-### `assess_risk_levels()` returns
-- `risk_map` — int8 ndarray `(lat, lon)`, RiskLevel values
-- `summary` — dict with per-level counts, percentages, labels
-- `stress_index` — float ndarray `(lat, lon)`, 0–1
+`save_risk_outputs()` writes:
 
-### `save_risk_outputs()` writes
-- `{prefix}.nc` — NetCDF with `risk_level` variable + lat/lon + time attrs
-- `{prefix}_summary.json` — JSON with summary + time_metadata
+- `{prefix}.nc`
+- `{prefix}_summary.json`
 
-### `save_risk_plot()` writes
-- Two-panel PNG: categorical risk map (left) + continuous stress index (right)
+`save_risk_plot()` writes a two-panel PNG:
 
-### `plot_dryness_diagnostics()` writes
-- Histogram of stress_index distribution
-- Scatter: soil moisture (x) vs VPD (y), coloured by stress_index
+- categorical risk map
+- continuous stress-index panel
 
-## Known Issues / Improvements
+`plot_dryness_diagnostics()` writes:
 
-- Stress weights (0.6/0.25/0.15) should be exposed via `ClassifierConfig` for tuning
-- Dryness normaliser is sensitive to `moisture_threshold` — if threshold is wrong (see `docs/thresholds.md`), stress index will be distorted for most cells
-- `_compute_risk_map` return type annotation is incorrect (says `np.ndarray`, returns 2-tuple)
+- soil-moisture histogram
+- soil-moisture vs VPD scatter coloured by stress index
+
+## Known Limitations
+
+- Stress weights are not yet configurable through `ClassifierConfig`.
+- The continuous stress thresholds are fixed year-round; seasonal calibration remains backlog work.
+- Legacy soil-moisture fallback mode is available, but the risk interpretation is calibrated for the decile product, not the raw-values product.

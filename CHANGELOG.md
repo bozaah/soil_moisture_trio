@@ -34,6 +34,47 @@ Default test baseline restored and expanded: `uv run pytest -q` now passes with 
 
 ---
 
+## [Sprint 10] 2026-03-26 — Audit remediation pass 2: doc sync and metadata cleanup
+
+### Changed
+
+- `README.md` — removed the stale B22 workaround note and documented the current bbox-scoped SILO cache layout
+- `docs/architecture.md` — rewritten to describe the real runtime flow, current output contract, polygon masking, and bbox-scoped cache behavior
+- `docs/data-sources.md` — rewritten to match the decile-first AWRAL path, opt-in legacy fallback, weather-tools primary loader, NetCDF fallback, and current cache layout
+- `docs/thresholds.md` — rewritten to separate the retained `classify_grid()` binary rule from the operational `risk.py` stress-index path and to document `moisture_threshold=0.50`
+- `docs/risk-model.md` — removed obsolete CatBoost/ML language and documented the direct risk-computation path
+- `docs/technical_report.md` — corrected stale config references, updated the dryness-zero condition to `sm_pct >= 0.50`, documented `--boundary-gpkg` masking, refreshed the SILO cache note, and removed the outdated logging limitation
+- `docs/cli-reference.md` — updated for `--allow-legacy-sm`, `--use-silo-cog-loader`, the real cache default, and the SILO lag note
+- `docs/backlog.md` — marked B5, B7, B9, and B22 resolved; reworded B24 now that B22 is already closed
+- `AGENTS.md` — updated the cache note and session-history links to reflect current repo state
+
+### Added
+
+- `sessions/2026-03-26-sprint10-doc-sync.md` — session note covering the documentation reconciliation pass and remaining gaps
+
+### Verified
+
+Targeted stale-pattern scan across `README.md`, `docs/`, and `src/` returned clean for the obsolete ML/cache/config narratives addressed in this pass. Targeted regression gate also passed: `uv run pytest tests/test_data_sources.py tests/test_pipeline.py -q` → `16 passed in 2.40s`.
+
+---
+
+## [Sprint 10] 2026-03-26 — Verification pass 3: lint baseline and live SWAZ run
+
+### Changed
+
+- `pyproject.toml` — added `ruff` to the `dev` dependency group so linting runs through the repo-managed `uv` environment
+- `src/soil_moisture_trio/plot.py` — renamed two ambiguous loop variables to satisfy `ruff` rule `E741`
+
+### Added
+
+- `sessions/2026-03-26-sprint10-live-verification.md` — session note covering the lint restore and fresh operational verification run
+
+### Verified
+
+Lint baseline restored: `uv run ruff check` now passes cleanly. Fresh live SWAZ boundary run also completed for `2026-03-01` to `2026-03-24` using `data/south_west_agricultural_boundary.gpkg`, producing `0` Critical, `1,486` Alert, `4,400` Watch, and `3,764` Low valid cells across `9,650` in-boundary valid cells, with outputs written to `outputs/risk_2026_mar_SWAZ_boundary_2026-03-26/`.
+
+---
+
 ## [Sprint 9] 2026-03-25 — Boundary GeoPackage integration
 
 ### Added

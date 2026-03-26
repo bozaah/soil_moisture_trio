@@ -1,80 +1,96 @@
 # Thresholds & Classification Logic
 
-## Label Generation (Rule-Based)
+This document describes the thresholds that exist in the current codebase and how they are used.
 
-Applied in `classify_grid()`:
+## Two Distinct Decision Surfaces
 
-```
-Dry (0): sm_pct_decile < moisture_threshold
+The repository still exposes two threshold sets:
+
+1. `classify_grid()` in [`pipeline.py`](/Users/dpird-mac/Documents/DPIRD/Git/soil_moisture_trio/src/soil_moisture_trio/pipeline.py) produces a binary dry/wet grid.
+2. `assess_risk_levels()` in [`risk.py`](/Users/dpird-mac/Documents/DPIRD/Git/soil_moisture_trio/src/soil_moisture_trio/risk.py) produces the operational Low / Watch / Alert / Critical outputs.
+
+The operational outputs written to NetCDF, JSON, PNG, and bulletin are driven by the stress-index path in `risk.py`.
+
+## Binary Dry/Wet Rule (`classify_grid`)
+
+`classify_grid()` is still present and uses the following rule:
+
+```text
+Dry (0): soil_moisture < moisture_threshold
          AND (temperature > temp_threshold OR vpd > vpd_threshold)
 Wet (1): all other valid cells
+NoData (-1): invalid cells
 ```
 
-`sm_pct_decile` is an AWRAL **percentile rank** (0–1) calibrated against the full 1911–2026 historical record. A rank of 0.10 means soil moisture is at or below the 10th percentile for that location and season.
+Current defaults from `ClassifierConfig`:
 
-## Current Thresholds (`ClassifierConfig` defaults)
-
-### Classification thresholds
-
-| Parameter | Default | Unit | Role |
+| Parameter | Default | Unit | Used by |
 |---|---|---|---|
-| `moisture_threshold` | 0.30 | percentile rank | Binary dry/wet boundary; also sets dryness=0 in stress index |
-| `temp_threshold` | 30.0 | °C | Heat stress trigger for binary classification |
-| `vpd_threshold` | 20.0 | hPa | Atmospheric dryness trigger for binary classification |
+| `moisture_threshold` | 0.50 | percentile rank | `classify_grid()` and `risk.py` dryness calculation |
+| `temp_threshold` | 30.0 | °C | `classify_grid()` only |
+| `vpd_threshold` | 20.0 | hPa | `classify_grid()` only |
 
-### Risk level thresholds
+`soil_moisture` is expected to be the AWRAL decile percentile-rank product on a `0–1` scale. A value of `0.10` means the cell is at or below the 10th percentile for that location and season.
 
-| Percentile rank | Category | Config field |
-|---|---|---|
-| ≤ 0.10 | **Critical** | `severe_moisture_threshold` |
-| 0.10–0.20 | **Alert** | `alert_moisture_threshold` |
-| 0.20–0.30 | **Watch** | implied by `moisture_threshold` |
-| ≥ 0.30 | **Low** | `moisture_threshold` |
+## Operational Risk Model (`risk.py`)
 
-| Parameter | Default | Unit | Role |
-|---|---|---|---|
-| `severe_moisture_threshold` | 0.10 | percentile rank | Critical/Alert boundary |
-| `alert_moisture_threshold` | 0.20 | percentile rank | Alert/Watch boundary |
-| `critical_temp_threshold` | 40.0 | °C | Stress index normaliser |
-| `critical_vpd_threshold` | 32.0 | hPa | Stress index normaliser |
-| `alert_temp_threshold` | 32.0 | °C | Reserved in config |
-| `alert_vpd_threshold` | 24.0 | hPa | Reserved in config |
+The risk map is derived from a continuous stress index:
 
-## Stress Index Formula
-
-Used in `risk.py` `_compute_risk_map()`:
-
-```
-dryness   = clip((moisture_threshold - sm_pct_decile) / moisture_threshold, 0, 1)
+```text
+dryness   = clip((moisture_threshold - soil_moisture) / moisture_threshold, 0, 1)
 temp_fac  = clip(temperature / critical_temp_threshold, 0, 1)
 vpd_fac   = clip(vpd / critical_vpd_threshold, 0, 1)
 
-stress_index = 0.6 * dryness + 0.25 * vpd_fac + 0.15 * temp_fac
+stress_index = 0.60 * dryness + 0.25 * vpd_fac + 0.15 * temp_fac
 ```
 
-`stress_index` maps to risk categories: Critical ≥ 0.85, Alert ≥ 0.60, Watch ≥ 0.35, Low < 0.35.
+Current defaults:
 
-With the decile input, `dryness = 0` for cells at or above the 30th percentile; cells at the 10th percentile have `dryness ≈ 0.67`.
-
-## Calibration Baseline — Jan–Mar 2026 WA
-
-From `data/awral_decile_sm_pct_WA_monthly.nc` (1911–2026, WA subset):
-
-| Category | Threshold | Cells | % of valid |
+| Parameter | Default | Unit | Role |
 |---|---|---|---|
-| Critical | < 0.10 | 1,011 | 1.1% |
-| Alert | 0.10–0.20 | 6,243 | 6.8% |
-| Watch | 0.20–0.30 | 11,318 | 12.3% |
-| Low | ≥ 0.30 | 73,619 | 79.9% |
+| `moisture_threshold` | 0.50 | percentile rank | Dryness reference point; cells at or above the median contribute zero dryness |
+| `critical_temp_threshold` | 40.0 | °C | Temperature normalisation ceiling |
+| `critical_vpd_threshold` | 32.0 | hPa | VPD normalisation ceiling |
 
-Historical Jan–Feb–Mar mean rank: 0.500 (confirms decile is centred on median as expected).
+### Risk Bands
 
-**Compare to old raw sm_pct results (Jan–Mar 2026):** Critical 47.1%, Alert 29.5%, Watch 9.4%, Low 14.1%. The decile product eliminates the over-classification artefact.
+| Stress index | Category |
+|---|---|
+| `< 0.35` | Low |
+| `0.35–<0.60` | Watch |
+| `0.60–<0.85` | Alert |
+| `>= 0.85` | Critical |
 
-## Resolution — B1 and B3 (closed)
+Invalid cells remain `-1` in `risk_map` and `NaN` in `stress_index`.
 
-**B1 (moisture_threshold too high):** Resolved by switching to AWRAL percentile rank product. The decile is spatially and seasonally normalised by construction — `moisture_threshold=0.30` corresponds to the actual 30th percentile for each location/season, not a fixed raw value.
+## Why `moisture_threshold = 0.50`
 
-**B3 (calibration helper):** Resolved — the decile product *is* the calibration. No separate calibration step needed; thresholds map directly to percentile ranks with stable climatological meaning.
+Sprint 7 changed the dryness reference from `0.30` to `0.50`.
 
-See `docs/data-sources.md` for the updated AWRAL URL and `docs/backlog.md` where B1/B3 are marked closed.
+Current interpretation:
+
+- cells at or above the climatological median contribute no soil-moisture stress
+- cells in the `0.30–0.50` range now contribute moderate dryness, which improves sensitivity in shoulder seasons
+- a cell at the 20th percentile has `dryness = 0.60`
+- a cell at the 10th percentile has `dryness = 0.80`
+
+This is a deliberate shift away from the older `0.30` setting, which zeroed out dryness for too many below-normal cells.
+
+## Soil-Moisture Interpretation Bands
+
+These percentile bands remain useful for interpretation, but they are not the direct mechanism used to assign the operational risk map:
+
+| Percentile rank | Interpretation |
+|---|---|
+| `<= 0.10` | Severe dryness relative to local climatology |
+| `0.10–0.20` | Strongly below normal |
+| `0.20–0.30` | Moderately below normal |
+| `> 0.30` | Within or above the historical normal range |
+
+Those bands explain the decile product. The pipeline's actual risk assignment uses the composite stress index above.
+
+## Current Gaps
+
+- The stress-index weights `0.60 / 0.25 / 0.15` are hardcoded in `risk.py`; they are not yet configurable through `ClassifierConfig`.
+- `classify_grid()` still uses `temp_threshold` and `vpd_threshold`, but the main operational products are produced by `assess_risk()`.
+- Legacy raw-values soil moisture can still be used with `--allow-legacy-sm`, but those outputs are compatibility-only and should not be interpreted the same way as decile-based runs.

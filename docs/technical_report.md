@@ -1,6 +1,6 @@
 # Soil Moisture Trio — Technical Report
 
-**Version:** Sprint 7 | **Date:** 2026-03-25
+**Version:** Sprint 9 | **Date:** 2026-03-26
 **Status:** Operational — decile-calibrated, composite stress index risk classification
 
 ---
@@ -55,7 +55,7 @@ A WA monthly decile subset covering the full historical record has been download
 
 The table below shows how `sm_pct` percentile rank values map to drought severity classes for interpretation and communication purposes.
 
-> **Note:** The pipeline's actual risk assignment uses the **composite stress index** described in Section 3, not these thresholds directly. The soil moisture percentile rank is one of three inputs to that composite. The `ClassifierConfig` fields `severe_moisture_threshold` (0.10) and `alert_moisture_threshold` (0.20) are retained in configuration for reference and future use but are **not currently referenced** by the risk calculation in `risk.py`.
+> **Note:** The pipeline's actual risk assignment uses the **composite stress index** described in Section 3, not these percentile bands directly. The table below is an interpretation aid for the decile product itself.
 
 | Percentile rank | Severity class | Interpretation |
 |---|---|---|
@@ -132,7 +132,7 @@ Cells with no data (ocean, areas outside domain, or missing inputs) are assigned
 
 ### 3.4 Valid Cell Masking
 
-The valid cell mask is built once during data loading (`prepare_data()`): a cell is valid if and only if all three inputs — soil moisture, temperature, and VPD — contain finite values. Ocean and missing-data cells are excluded at this stage and carry a sentinel value of `-1` through all outputs. No imputation is performed.
+The valid cell mask is built once during data loading (`prepare_data()`): a cell is valid if and only if all three inputs — soil moisture, temperature, and VPD — contain finite values. When `--boundary-gpkg` is used, the valid mask is further restricted to cells whose centres fall inside the supplied polygon. Ocean and missing-data cells are excluded at this stage and carry a sentinel value of `-1` through all outputs. No imputation is performed.
 
 ### 3.5 Scientific Rationale for Thresholds and Weights
 
@@ -172,7 +172,7 @@ The thresholds are set so that atmospheric stress alone (VPD + temperature, with
 | Threshold | What is required to reach it |
 |---|---|
 | Watch (≥ 0.35) | Soil moisture near-adequate (dryness ≈ 0) with near-maximum combined VPD and temperature (max atmospheric contribution = 0.25 + 0.15 = 0.40). Atmospheric stress alone can just breach Watch; soil moisture deficit pulls it higher. |
-| Alert (≥ 0.60) | Requires soil moisture deficit. With dryness = 0 (sm_pct ≥ 0.30), maximum stress is 0.40 — Alert is unreachable by atmospheric stress alone. A cell at the ~15th percentile with high VPD and temperature reaches Alert. |
+| Alert (≥ 0.60) | Requires soil moisture deficit. With dryness = 0 (sm_pct ≥ 0.50), maximum stress is 0.40 — Alert is unreachable by atmospheric stress alone. A cell at the ~15th percentile with high VPD and temperature reaches Alert. |
 | Critical (≥ 0.85) | Cannot be reached without severe soil moisture deficit. Requires sm_pct ≤ approximately the 8th percentile with near-maximum VPD and temperature, or sm_pct near the 0th percentile with moderate atmospheric stress. This ensures Critical reflects genuine multi-factor extremes. |
 
 ---
@@ -208,7 +208,7 @@ A Folium HTML map with clickable cells showing risk level and coordinates, for f
 
 ### 5.1 Standard WA Run
 
-The default spatial domain covers all of Australia. For Western Australia operational runs, the following bounds avoid unnecessary processing of the eastern states:
+The default spatial domain covers all of Australia. For Western Australia operational runs, either use explicit WA bounds or, for named regions such as SWAZ, prefer `--boundary-gpkg` so the bbox is derived automatically and cells outside the polygon are masked.
 
 ```bash
 uv run python main.py \
@@ -223,7 +223,9 @@ uv run python main.py \
   --min-lon 112 --max-lon 129
 ```
 
-The SILO cache directory defaults to `~/.cache/soil_moisture_trio/silo` and is created automatically on first run. Pass `--silo-cache-dir PATH` to override. Re-running the same period with a warm cache incurs zero downloads.
+The SILO cache directory defaults to `~/.cache/soil_moisture_trio/silo` and is created automatically on first run. Cached GeoTIFFs are stored beneath bbox-hashed subdirectories inside that cache root. Pass `--silo-cache-dir PATH` to override. Re-running the same period with a warm cache incurs zero downloads.
+
+For live operational runs, keep `--end-date` no later than today minus two days because SILO publication usually lags by 1 to 2 days.
 
 Estimated run time for a WA window: ~5–10 minutes on first run (cold cache); substantially faster on subsequent runs.
 
@@ -244,12 +246,11 @@ uv run python scripts/render_bulletin.py \
 
 | Item | Description | Priority |
 |---|---|---|
-| Orphaned config fields | `severe_moisture_threshold`, `alert_moisture_threshold`, `watch_margin`, `temp_threshold`, `vpd_threshold`, `alert_temp_threshold`, `alert_vpd_threshold` are defined in `ClassifierConfig` but not referenced by `risk.py`. Retained as legacy from the pre-Sprint-6 rule-based classifier; see Section 2 note. | Low |
+| Binary classification surface remains separate | `classify_grid()` still uses `temp_threshold` and `vpd_threshold`, but the operational outputs are produced by `assess_risk()` in `risk.py`. This is acceptable but leaves two different threshold surfaces in the codebase. | Low |
 | Stress index weights not configurable | The 0.60/0.25/0.15 weights are hardcoded in `risk.py`. Adjustment requires modifying source code. Exposure via `ClassifierConfig` tracked as B10. | Medium |
 | Weights not empirically validated | Weights and thresholds are expert-judgment calibrations. Formal optimisation against yield/pasture-loss data is tracked as B20. | Future |
 | No temporal trend analysis | Each run produces a snapshot. Multi-period trend comparison (drying trajectories, persistent hotspots) is not yet implemented. | Future |
 | No spatial aggregation | Risk map is cell-level only. Aggregation to NRM regions, catchments, or farm units would support decision-support use. | Future |
-| Logging | Pipeline uses `print()` for status messages. Replacing with structured `logging` would improve production readiness (B5). | Low |
 
 ---
 

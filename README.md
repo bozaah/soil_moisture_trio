@@ -90,9 +90,7 @@ All thresholds live in `ClassifierConfig` (`src/.../config.py`). Key defaults:
 
 ## SILO Cache
 
-SILO GeoTIFF tiles are cached to `~/.cache/soil_moisture_trio/silo` by default and persist across runs. Re-running the same period and bounding box incurs zero downloads.
-
-> **Note (B22):** The cache key does not include the bounding box. Runs with different bounding boxes must use separate cache directories via `--silo-cache-dir`. See [docs/backlog.md](docs/backlog.md).
+SILO GeoTIFF tiles are cached under `~/.cache/soil_moisture_trio/silo` by default and persist across runs. The loader now creates bbox-scoped subdirectories inside that cache root, so repeated runs for the same bounds reuse tiles without cross-bbox collisions.
 
 ## Tests
 

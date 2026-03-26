@@ -70,7 +70,7 @@ def save_risk_plot(
     output.parent.mkdir(parents=True, exist_ok=True)
 
     # ---- Color setups ----
-    cmap_class = ListedColormap([RISK_COLORS[l] for l in RiskLevel])
+    cmap_class = ListedColormap([RISK_COLORS[level] for level in RiskLevel])
     cmap_class.set_bad("#bdbdbd")
     bounds = np.arange(len(RiskLevel) + 1) - 0.5
     norm_class = BoundaryNorm(bounds, cmap_class.N)
@@ -93,7 +93,7 @@ def save_risk_plot(
     ax1.set_title(title)
     cbar1 = fig.colorbar(mesh1, ax=ax1, orientation="vertical", pad=0.02, fraction=0.046)
     cbar1.set_ticks(np.arange(len(RiskLevel)))
-    cbar1.set_ticklabels([RISK_LABELS[l] for l in RiskLevel])
+    cbar1.set_ticklabels([RISK_LABELS[level] for level in RiskLevel])
     cbar1.set_label("Risk Level")
     cbar1.ax.tick_params(labelsize=9)
 
