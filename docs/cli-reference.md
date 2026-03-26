@@ -12,11 +12,12 @@ Run with: `uv run python main.py [OPTIONS]`
 | `--visualize` | off | Generate Folium HTML map |
 | `--output-path PATH` | `classification_map.html` | Folium HTML output path |
 
-## Bounding Box
+## Boundary / Bounding Box
 
 | Flag | Default | Description |
 |---|---|---|
-| `--min-lat FLOAT` | -45.0 | |
+| `--boundary-gpkg PATH` | — | GeoPackage boundary file. Derives bbox automatically (+0.1° buffer) and masks cells outside the polygon. Replaces manual `--min-lat/max-lat/min-lon/max-lon` for boundary-defined regions. |
+| `--min-lat FLOAT` | -45.0 | Manual override; ignored when `--boundary-gpkg` is set |
 | `--max-lat FLOAT` | -8.0 | |
 | `--min-lon FLOAT` | 110.0 | |
 | `--max-lon FLOAT` | 155.0 | |
@@ -53,8 +54,7 @@ uv run python main.py \
   --silo-variable max_temp \
   --silo-variable vp_deficit \
   --silo-cache-dir ~/.cache/soil_moisture_trio/silo_swaz \
-  --min-lat -35 --max-lat -27 \
-  --min-lon 114 --max-lon 123
+  --boundary-gpkg data/south_west_agricultural_boundary.gpkg
 ```
 
 Then render the bulletin:
@@ -63,8 +63,18 @@ Then render the bulletin:
 uv run python scripts/render_bulletin.py \
   --summary-json outputs/risk_2026_mar_SWAZ/risk_2026_mar_SWAZ_summary.json \
   --map-png outputs/risk_2026_mar_SWAZ/risk_2026_mar_SWAZ.png \
-  --output outputs/risk_2026_mar_SWAZ/bulletin_2026_mar_SWAZ.md
+  --output outputs/risk_2026_mar_SWAZ/bulletin_2026_mar_SWAZ.md \
+  --region "South West Agricultural Zone"
 ```
+
+## Bulletin Renderer (`scripts/render_bulletin.py`)
+
+| Flag | Default | Description |
+|---|---|---|
+| `--summary-json PATH` | required | Path to `*_summary.json` produced by the pipeline |
+| `--map-png PATH` | — | Risk map PNG to embed (path made relative to output dir automatically) |
+| `--output PATH` | required | Output Markdown path |
+| `--region TEXT` | `"Western Australia"` | Region label used in the bulletin title and text |
 
 ## Environment
 

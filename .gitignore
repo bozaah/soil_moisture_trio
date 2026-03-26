@@ -8,4 +8,6 @@ uv.lock
 .claude/
 .markdownlint.json
 data/*
+audits/
+
 

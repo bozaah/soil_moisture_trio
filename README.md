@@ -36,8 +36,7 @@ uv run python main.py \
   --silo-variable max_temp \
   --silo-variable vp_deficit \
   --silo-cache-dir ~/.cache/soil_moisture_trio/silo_swaz \
-  --min-lat -35 --max-lat -27 \
-  --min-lon 114 --max-lon 123
+  --boundary-gpkg data/south_west_agricultural_boundary.gpkg
 ```
 
 Then render a bulletin (all files in the same run directory):
@@ -46,7 +45,8 @@ Then render a bulletin (all files in the same run directory):
 uv run python scripts/render_bulletin.py \
   --summary-json outputs/risk_2026_mar_SWAZ/risk_2026_mar_SWAZ_summary.json \
   --map-png outputs/risk_2026_mar_SWAZ/risk_2026_mar_SWAZ.png \
-  --output outputs/risk_2026_mar_SWAZ/bulletin_2026_mar_SWAZ.md
+  --output outputs/risk_2026_mar_SWAZ/bulletin_2026_mar_SWAZ.md \
+  --region "South West Agricultural Zone"
 ```
 
 See [docs/cli-reference.md](docs/cli-reference.md) for all flags.

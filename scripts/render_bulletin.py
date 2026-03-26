@@ -16,7 +16,7 @@ def _relative_png(map_png: Path | None, output: Path) -> str | None:
         return str(map_png)
 
 
-def render_bulletin(summary_json: Path, map_png: Path | None, output: Path) -> None:
+def render_bulletin(summary_json: Path, map_png: Path | None, output: Path, region: str = "Western Australia") -> None:
     with summary_json.open(encoding="utf-8") as f:
         payload = json.load(f)
 
@@ -33,6 +33,7 @@ def render_bulletin(summary_json: Path, map_png: Path | None, output: Path) -> N
         return s[:10] if s and len(s) >= 10 else s
 
     context = {
+        "region": region,
         "time_start": clean_date(time_meta.get("time_start", "unknown")),
         "time_end": clean_date(time_meta.get("time_end", "unknown")),
         "run_date": date.today().isoformat(),
@@ -63,5 +64,6 @@ if __name__ == "__main__":
     parser.add_argument("--summary-json", required=True, type=Path, help="Path to *_summary.json")
     parser.add_argument("--map-png", default=None, type=Path, help="Path to risk map PNG (optional)")
     parser.add_argument("--output", required=True, type=Path, help="Output Markdown path")
+    parser.add_argument("--region", default="Western Australia", help="Region label used in bulletin title and text (default: 'Western Australia')")
     args = parser.parse_args()
-    render_bulletin(args.summary_json, args.map_png, args.output)
+    render_bulletin(args.summary_json, args.map_png, args.output, region=args.region)

@@ -1,4 +1,4 @@
-# Western Australia Drought Risk Bulletin
+# {{ region }} Drought Risk Bulletin
 
 **Period:** {{ time_start }} to {{ time_end }}
 **Run date:** {{ run_date }}
@@ -8,12 +8,12 @@
 
 ## Key finding
 
-As of {{ time_end }}, **{{ critical_pct }}% of the valid WA land area** is classified at Critical drought risk,
+As of {{ time_end }}, **{{ critical_pct }}% of the valid {{ region }} land area** is classified at Critical drought risk,
 {{ alert_pct }}% at Alert, {{ watch_pct }}% at Watch, and {{ low_pct }}% at Low risk.
 
 ## Risk summary
 
-| Risk level | Grid cells | % of valid WA land |
+| Risk level | Grid cells | % of valid {{ region }} land |
 |---|---|---|
 | Critical | {{ "{:,}".format(critical_count) }} | {{ critical_pct }}% |
 | Alert    | {{ "{:,}".format(alert_count) }}    | {{ alert_pct }}%   |
@@ -21,7 +21,7 @@ As of {{ time_end }}, **{{ critical_pct }}% of the valid WA land area** is class
 | Low      | {{ "{:,}".format(low_count) }}      | {{ low_pct }}%     |
 | **Total valid** | **{{ "{:,}".format(valid_count) }}** | **100%** |
 
-_Grid cells are 0.05° (~5 km). Valid cells exclude ocean and areas with missing data ({{ invalid_count | default(0) | int }} cells excluded)._
+_Grid cells are 0.05° (~5 km). Valid cells exclude ocean, areas outside the reporting boundary, and cells with missing data ({{ invalid_count | default(0) | int }} cells excluded)._
 
 ## Risk map
 
