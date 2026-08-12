@@ -20,7 +20,7 @@ Items are grouped by theme. See `CHANGELOG.md` for what was done each sprint.
 
 - ~~**B7**~~ **RESOLVED** — `--allow-legacy-sm` is now implemented as an explicit opt-in fallback to the legacy raw-values AWRAL product, with warnings in both code and docs.
 
-- **B8** — Fix `_load_real_netcdf` band-slice path: the `slice(band_values[start_idx], band_values[stop_idx-1])` construction is likely wrong for COG files where band coords are not sequential integers.
+- ~~**B8**~~ **RESOLVED (Sprint 11)** — `_load_real_netcdf` now selects raster time windows positionally with `isel(band=slice(start_idx, stop_idx))`, avoiding dependence on non-sequential band labels.
 
 - ~~**B22**~~ **RESOLVED (Sprint 9)** — `WeatherToolsSiloLoader` now scopes cached GeoTIFFs into bbox-hashed subdirectories under the configured cache root, preventing cross-bbox collisions within a shared cache directory.
 
@@ -32,7 +32,7 @@ Items are grouped by theme. See `CHANGELOG.md` for what was done each sprint.
 
 - **B10** — Expose stress index weights (0.6/0.25/0.15) via `ClassifierConfig` fields.
 
-- **B12** — Move `tests/test_moisture_ranges.py` to `scripts/` or `tools/` — it is a standalone diagnostic script with top-level `sys.exit()` that breaks pytest collection.
+- ~~**B12**~~ **RESOLVED (Sprint 11)** — The networked moisture-range diagnostic now lives at `scripts/moisture_ranges_diagnostic.py`; default pytest collection contains deterministic tests only.
 
 ---
 
@@ -50,8 +50,10 @@ Items are grouped by theme. See `CHANGELOG.md` for what was done each sprint.
 
 - **B19** — Async data loading: integrate the pattern from `example_dataloader.py` into `DryWetClassifierPipeline` for large-area or multi-year runs.
 
-- **B20** — ML classifier: when independent labelled data exists (historical expert labels or remote-sensing ground truth), replace `classify_grid()` with a proper spatial ML pipeline — independent train/test data, spatial cross-validation, real NDVI feature. Decision logged in `sessions/2026-03-18-session-02.md`.
+- **B20** — ML classifier: only consider replacing the rule-based risk model when independent labelled data exists (historical expert labels or remote-sensing ground truth). Any future model requires independent train/test data, spatial cross-validation, and real observed predictors.
 
 - **B23** — Seasonal stress index thresholds (Option C): replace the fixed Critical/Alert/Watch thresholds (0.85/0.60/0.35) with season-specific values calibrated so that the long-run proportion of cells in each category is stable across months. Motivation: atmospheric VPD and temperature are systematically higher in summer, which means the current fixed thresholds are implicitly stricter in winter/spring than summer. Requires a calibration pass using the WA monthly baseline (`data/awral_decile_sm_pct_WA_monthly.nc`) together with historical SILO. Design decision logged in `sessions/2026-03-25-sprint7-persistent-cache-bulletin.md`.
 
 - **B24** — Rangelands / multi-region support (Option A): download a full-WA rectangle once and cache it at that scale; downstream runs (SWAZ, rangelands, pastoral zones) clip/mask from the single cache using their respective boundary files. This would reduce repeated downloads across overlapping WA regions and enable a consistent multi-region monitoring product from one set of inputs. The current `--boundary-gpkg` approach (Option B, Sprint 9) remains the operational default until this is implemented. Decision logged in `sessions/2026-03-25-sprint9-boundary-gpkg.md`.
+
+- **B25** — Soil-property stratification: integrate SLGA v2 soil property layers, followed by approved WA-specific digital soil maps when available, and summarise drought stress by scientifically defensible soil groups or property bands. Define the soil data contract, spatial alignment, missing-data behavior, and validation criteria before implementation. Planned direction recorded in `sessions/2026-05-11_ssa26-abstract-submission.md`.

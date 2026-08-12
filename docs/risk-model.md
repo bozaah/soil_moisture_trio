@@ -2,7 +2,7 @@
 
 ## Overview
 
-The operational risk layer is computed directly from soil moisture, temperature, and VPD in [`risk.py`](/Users/dpird-mac/Documents/DPIRD/Git/soil_moisture_trio/src/soil_moisture_trio/risk.py). There is no ML model in the current production path.
+The operational risk layer is computed directly from soil moisture, temperature, and VPD in [`risk.py`](../src/soil_moisture_trio/risk.py). There is no ML model in the current production path.
 
 `DryWetClassifierPipeline.assess_risk()` passes the prepared grids and valid mask into `assess_risk_levels()`, which returns:
 

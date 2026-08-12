@@ -25,6 +25,8 @@ uv sync
 
 ## Quick Start — WA Southwest Agricultural Zone
 
+The boundary file is locally supplied and intentionally not redistributed. Obtain the approved DPIRD boundary and place it at `data/south_west_agricultural_boundary.gpkg`; see [`data/README.md`](data/README.md).
+
 ```bash
 uv run python main.py \
   --year 2026 \
@@ -92,13 +94,19 @@ All thresholds live in `ClassifierConfig` (`src/.../config.py`). Key defaults:
 
 SILO GeoTIFF tiles are cached under `~/.cache/soil_moisture_trio/silo` by default and persist across runs. The loader now creates bbox-scoped subdirectories inside that cache root, so repeated runs for the same bounds reuse tiles without cross-bbox collisions.
 
-## Tests
+## Verification
 
 ```bash
-uv run pytest tests/test_pipeline.py tests/test_data_sources.py -q
+uv sync --frozen --group dev
+uv run pytest -q
+uv run ruff check
 ```
 
-> `tests/test_moisture_ranges.py` is a diagnostic script — run it directly, not via pytest.
+The networked moisture-range utility is intentionally outside the test suite:
+
+```bash
+uv run python scripts/moisture_ranges_diagnostic.py
+```
 
 ## Docs
 

@@ -32,7 +32,7 @@ def run_pipeline(
     min_lon: float | None = None,
     max_lon: float | None = None,
 ) -> None:
-    """Execute the end-to-end pipeline: load data, classify, assess risk, save outputs."""
+    """Execute the end-to-end pipeline: load data, assess risk, and save outputs."""
     # ------------------------------------------------------------------
     # 1. Configuration
     # ------------------------------------------------------------------

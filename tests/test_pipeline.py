@@ -1,5 +1,4 @@
 import json
-from pathlib import Path
 
 import numpy as np
 import pytest
@@ -82,36 +81,33 @@ def test_prepare_data_excludes_nan_cells(monkeypatch):
     assert not pipeline.valid_mask_grid[np.isnan(soil)].any()
 
 
-def test_classify_grid_shape_and_values(monkeypatch):
-    """classify_grid must return correct shape with only -1, 0, 1 values."""
-    pipeline = DryWetClassifierPipeline(ClassifierConfig())
-    monkeypatch.setattr(pipeline, "_load_all_real_data", lambda: _mock_real_data())
-    pipeline.prepare_data()
-    grid = pipeline.classify_grid()
-
-    assert grid.shape == pipeline.data_grids['soil_moisture'].shape
-    assert np.isin(grid, [-1, 0, 1]).all()
-    # NaN input cells must be -1
-    nan_mask = ~pipeline.valid_mask_grid
-    assert (grid[nan_mask] == -1).all()
-
-
-def test_classify_grid_dry_rule(monkeypatch):
-    """Cells meeting dry rule must be 0; others must be 1 (when valid)."""
-    config = ClassifierConfig(moisture_threshold=0.25, temp_threshold=30.0, vpd_threshold=20.0)
+def test_load_real_netcdf_uses_band_positions_for_time_window(monkeypatch):
+    """Raster time selection must not depend on non-sequential band labels."""
+    config = ClassifierConfig(start_date="2025-01-02", end_date="2025-01-03")
     pipeline = DryWetClassifierPipeline(config)
-    monkeypatch.setattr(pipeline, "_load_all_real_data", lambda: _mock_real_data())
-    pipeline.prepare_data()
-    grid = pipeline.classify_grid()
+    raster = xr.DataArray(
+        np.array(
+            [
+                [[1.0, 1.0], [1.0, 1.0]],
+                [[2.0, 2.0], [2.0, 2.0]],
+                [[3.0, 3.0], [3.0, 3.0]],
+            ]
+        ),
+        dims=("band", "y", "x"),
+        coords={"band": [10, 20, 30]},
+    )
+    metadata = xr.Dataset(
+        coords={"time": np.array(["2025-01-01", "2025-01-02", "2025-01-03"], dtype="datetime64[D]")}
+    )
 
-    soil = pipeline.data_grids['soil_moisture']
-    temp = pipeline.data_grids['temperature']
-    vpd = pipeline.data_grids['vpd']
-    valid = pipeline.valid_mask_grid
+    monkeypatch.setattr("src.soil_moisture_trio.pipeline.rio.open_rasterio", lambda *args, **kwargs: raster)
+    monkeypatch.setattr("src.soil_moisture_trio.pipeline.xr.open_dataset", lambda *args, **kwargs: metadata)
 
-    expected_dry = valid & (soil < 0.25) & ((temp > 30.0) | (vpd > 20.0))
-    assert (grid[expected_dry] == 0).all()
-    assert (grid[valid & ~expected_dry] == 1).all()
+    values, time_meta = pipeline._load_real_netcdf("local-raster.tif", "unused")
+
+    np.testing.assert_allclose(values, np.full((2, 2), 2.5))
+    assert time_meta["time_start"].startswith("2025-01-02")
+    assert time_meta["time_end"].startswith("2025-01-03")
 
 
 def test_pipeline_assess_risk_returns_summary(monkeypatch):
@@ -131,8 +127,6 @@ def test_pipeline_assess_risk_returns_summary(monkeypatch):
 def test_assess_risk_levels_categorizes_cells():
     config = ClassifierConfig(
         moisture_threshold=0.25,
-        temp_threshold=30.0,
-        vpd_threshold=20.0,
         critical_temp_threshold=35.0,
         critical_vpd_threshold=30.0,
     )

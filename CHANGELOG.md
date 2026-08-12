@@ -4,6 +4,33 @@ All notable changes per sprint/iteration. Format: `## [sprint] YYYY-MM-DD — Ti
 
 ---
 
+## [Sprint 11] 2026-08-12 — Reproducibility cleanup and single risk surface
+
+### Changed
+
+- `.gitignore` — replaced broad rules that hid the test suite and lockfile; deterministic tests, `uv.lock`, Markdown lint configuration, CI, and `data/README.md` are now visible to version control while large data and generated outputs remain ignored
+- `pyproject.toml` / `uv.lock` — made the uv lockfile the reproducible dependency contract; added direct runtime dependencies (`jinja2`, `matplotlib`, `netcdf4`, `pandas`), removed unused `fsspec` and `matplotlib-scalebar`, and retained SciPy after fresh-sync tests proved it is required by xarray interpolation
+- `requirements.txt` — removed the stale generated manifest that still included CatBoost
+- `src/soil_moisture_trio/pipeline.py` / `config.py` — removed the unused `classify_grid()` binary surface and its exclusive `temp_threshold` / `vpd_threshold` settings; operational outputs now have one documented risk decision surface
+- `tests/test_moisture_ranges.py` — moved out of pytest collection and replaced by `scripts/moisture_ranges_diagnostic.py`
+- README and reference docs — documented local data provisioning, fresh-clone verification, the single operational risk surface, and resolved backlog items B8/B12
+
+### Added
+
+- `.github/workflows/ci.yml` — fresh locked dependency install, pytest, and Ruff checks on pushes and pull requests
+- `data/README.md` — provisioning notes for the non-redistributed SWAZ boundary and large AWRA-L calibration baseline
+- tracked data-source and Folium regression tests that had previously been hidden by `.gitignore`
+- positional raster-band regression coverage for non-sequential band labels
+
+### Verified
+
+- `uv lock --check` → lockfile current
+- `uv sync --frozen --group dev` → clean locked dependency sync
+- `uv run pytest -q` → `16 passed`
+- `uv run ruff check` → `All checks passed!`
+
+---
+
 ## [Sprint 10] 2026-03-26 — Audit remediation pass 1
 
 ### Changed

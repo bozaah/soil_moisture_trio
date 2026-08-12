@@ -45,6 +45,8 @@ Run with: `uv run python main.py [OPTIONS]`
 
 ## Example — SWAZ March 2026
 
+This example requires the locally supplied DPIRD boundary at `data/south_west_agricultural_boundary.gpkg`; see [`data/README.md`](../data/README.md).
+
 ```bash
 uv run python main.py \
   --year 2026 \

@@ -6,11 +6,9 @@ from pydantic import BaseModel, Field
 
 
 class ClassifierConfig(BaseModel):
-    # --- Dry/wet classification thresholds ---
+    # --- Stress index thresholds ---
     # soil moisture values are AWRAL decile percentile ranks (0–1)
     moisture_threshold: float = Field(0.50, ge=0, le=1, description="Dryness factor reference: dryness = clip((threshold - sm_pct) / threshold, 0, 1). 0.50 = climatological median; cells above median contribute zero dryness.")
-    temp_threshold: float = Field(30.0, ge=0, description="High temperature threshold (°C)")
-    vpd_threshold: float = Field(20.0, ge=0, description="High VPD threshold (hPa)")
 
     # --- Stress index normalisation + category thresholds ---
     critical_temp_threshold: float = Field(40.0, ge=0, description="Temperature normalisation ceiling for the stress index (°C)")

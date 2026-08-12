@@ -1,6 +1,6 @@
 # Soil Moisture Trio — Technical Report
 
-**Version:** Sprint 9 | **Date:** 2026-03-26
+**Version:** Sprint 11 | **Date:** 2026-08-12
 **Status:** Operational — decile-calibrated, composite stress index risk classification
 
 ---
@@ -246,7 +246,6 @@ uv run python scripts/render_bulletin.py \
 
 | Item | Description | Priority |
 |---|---|---|
-| Binary classification surface remains separate | `classify_grid()` still uses `temp_threshold` and `vpd_threshold`, but the operational outputs are produced by `assess_risk()` in `risk.py`. This is acceptable but leaves two different threshold surfaces in the codebase. | Low |
 | Stress index weights not configurable | The 0.60/0.25/0.15 weights are hardcoded in `risk.py`. Adjustment requires modifying source code. Exposure via `ClassifierConfig` tracked as B10. | Medium |
 | Weights not empirically validated | Weights and thresholds are expert-judgment calibrations. Formal optimisation against yield/pasture-loss data is tracked as B20. | Future |
 | No temporal trend analysis | Each run produces a snapshot. Multi-period trend comparison (drying trajectories, persistent hotspots) is not yet implemented. | Future |

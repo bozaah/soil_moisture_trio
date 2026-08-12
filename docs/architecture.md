@@ -63,7 +63,7 @@ Invalid cells are never imputed. They propagate as:
 
 ## Risk Assessment
 
-`assess_risk()` delegates to [`src/soil_moisture_trio/risk.py`](/Users/dpird-mac/Documents/DPIRD/Git/soil_moisture_trio/src/soil_moisture_trio/risk.py), which computes:
+`assess_risk()` delegates to [`src/soil_moisture_trio/risk.py`](../src/soil_moisture_trio/risk.py), which computes:
 
 ```text
 dryness   = clip((moisture_threshold - soil_moisture) / moisture_threshold, 0, 1)

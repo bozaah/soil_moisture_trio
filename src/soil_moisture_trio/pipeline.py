@@ -434,42 +434,6 @@ class DryWetClassifierPipeline:
         valid_count = int(self.valid_mask_grid.sum())
         LOGGER.info("Data prepared. Valid cells: %d of %d", valid_count, soil.size)
 
-    def classify_grid(self) -> np.ndarray:
-        """
-        Apply threshold rule to produce a dry/wet classification grid.
-
-        Returns an int8 grid where:
-          0 = dry  (sm < moisture_threshold AND (temp > temp_threshold OR vpd > vpd_threshold))
-          1 = wet  (all other valid cells)
-         -1 = invalid (NaN / ocean)
-
-        Assumptions:
-          - sm_pct has been converted to fraction (0-1) prior to this call
-          - moisture_threshold, temp_threshold, vpd_threshold are in matching units
-          - This is a deterministic rule, not an ML prediction
-        """
-        if not hasattr(self, 'data_grids') or self.valid_mask_grid is None:
-            raise ValueError("Call prepare_data() before classify_grid().")
-
-        soil = self.data_grids['soil_moisture']
-        temp = self.data_grids['temperature']
-        vpd = self.data_grids['vpd']
-
-        dry_mask = (
-            (soil < self.config.moisture_threshold) &
-            ((temp > self.config.temp_threshold) | (vpd > self.config.vpd_threshold))
-        )
-
-        classification = np.full(soil.shape, -1, dtype=np.int8)
-        classification[self.valid_mask_grid] = 1
-        classification[self.valid_mask_grid & dry_mask] = 0
-
-        dry_count = int(np.sum(classification == 0))
-        wet_count = int(np.sum(classification == 1))
-        invalid_count = int(np.sum(classification < 0))
-        LOGGER.info("Grid classified. Dry: %d, Wet: %d, No data: %d", dry_count, wet_count, invalid_count)
-        return classification
-
     def assess_risk(self) -> Dict[str, Any]:
         """
         Generate the risk layer and summary statistics.

@@ -1,13 +1,19 @@
-__pycache__
-/.pytest_cache/
+# Python
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.ruff_cache/
+.venv/
 .python-version
-/tests/*
-/outputs/
-uv.lock
-*html
+
+# Local tooling
 .claude/
-.markdownlint.json
+
+# Generated products
+outputs/
+/*.html
+.DS_Store
+
+# Large or locally supplied data
 data/*
-audits/
-
-
+!data/README.md

@@ -30,12 +30,13 @@ Important caveat: the legacy raw-values product is compatibility-only. The curre
 
 ### Calibration Baseline
 
-The repository also carries a WA monthly decile subset for calibration and diagnostics:
+A local WA monthly decile subset may be used for calibration and diagnostics:
 
 - File: `data/awral_decile_sm_pct_WA_monthly.nc`
 - Coverage: WA subset
 - Period: January 1911 to February 2026
 - Use: reference analysis and threshold sanity checks, not routine operational loading
+- Version control: excluded because it is approximately 793 MB; see [`data/README.md`](../data/README.md)
 
 ## SILO Temperature and VPD
 

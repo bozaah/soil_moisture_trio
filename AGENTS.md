@@ -93,6 +93,8 @@ All outputs (`.nc`, `_summary.json`, risk PNG, `stress_diagnostics.png`) land in
 - [sessions/2026-03-26-sprint10-audit-remediation.md](sessions/2026-03-26-sprint10-audit-remediation.md) — Sprint 10 audit remediation pass 1: runtime fixes, fallback hardening, cache fix, logging cleanup
 - [sessions/2026-03-26-sprint10-doc-sync.md](sessions/2026-03-26-sprint10-doc-sync.md) — Sprint 10 audit remediation pass 2: docs alignment, backlog cleanup, repo metadata updates
 - [sessions/2026-03-26-sprint10-live-verification.md](sessions/2026-03-26-sprint10-live-verification.md) — Sprint 10 verification pass 3: lint baseline restored and fresh live SWAZ boundary run captured
+- [sessions/2026-05-11_ssa26-abstract-submission.md](sessions/2026-05-11_ssa26-abstract-submission.md) — SSA 2026 abstract submission and planned soil-property stratification direction
+- [sessions/2026-08-12-sprint11-reproducibility-cleanup.md](sessions/2026-08-12-sprint11-reproducibility-cleanup.md) — Sprint 11: reproducible lock/tests/CI cleanup and removal of the unused binary classification surface
 
 ## First Principles
 
