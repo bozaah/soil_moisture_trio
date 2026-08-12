@@ -4,6 +4,26 @@ All notable changes per sprint/iteration. Format: `## [sprint] YYYY-MM-DD — Ti
 
 ---
 
+## [Phase 5] 2026-08-12 — Authenticated SLGA source-manifest verification
+
+### Added
+
+- `manifests/slga_awc_des_sources_v1.json` — live-verified full-ID source catalogue for 15 AWC v2 and 3 DES v2 layers, including URLs, profiles, published STAC multihashes, and file sizes
+- `sessions/2026-08-12-phase5-slga-manifest-verification.md` — verification evidence, upstream metadata caveats, and corrected next-step contract
+
+### Corrected
+
+- DES v2 uncertainty components are 10th/90th percentiles (`10`/`90`), not the unavailable `05`/`95` identifiers in the provisional evidence review
+- combined AWC/DES lower and upper products are now described as mixed-quantile uncertainty scenarios rather than a formal integrated confidence interval
+- source-range handling now reflects live STAC statistics; approximate AWC 0–25% and DES 0–2 m expectations are not hard rejection limits
+
+### Verified
+
+- all 18 corrected COGs support authenticated byte-range reads and share the expected EPSG:4326 3 arc-second grid, transform, bounds, units, and COG structure
+- lower ≤ EV ≤ upper ordering holds in the test window for all five AWC depths and DES
+- AWC COG nodata is `65535`; DES COG nodata is `NaN`
+- documented two upstream exceptions for builder validation: AWC STAC omits nodata, and DES internal band descriptions retain stale `NAT` IDs while filenames/STAC IDs use `TRN`
+
 ## [Sprint 13] 2026-08-12 — Validated risk configuration and documentation consolidation
 
 ### Changed

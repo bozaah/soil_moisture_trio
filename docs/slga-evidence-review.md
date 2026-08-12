@@ -1,12 +1,13 @@
 # Soil-Property Stratification of AWRA-L Drought Output in Western Australian Agriculture: Evidence Review, SLGA Product Audit, and Minimal-Module Specification
 
-*Research date: 12 August 2026. Product metadata verified on this date and may change; all versions/DOIs should be re-checked before build. SLGA layers are modelled digital-soil-mapping predictions with quantified uncertainty and must never be equated with observed field measurements.*
+*Research date: 12 August 2026. The pinned source manifest was authenticated and live-verified on this date. Product metadata may change and must be checked against the tracked manifest before a build. SLGA layers are modelled digital-soil-mapping predictions with quantified uncertainty and must never be equated with observed field measurements.*
 
 ## DECISION BOX
 - **Approved Release 1 properties:** SLGA **Available Water Capacity (AWC), Version 2** (DOI 10.25919/4jwj-na34) together with SLGA **Depth of Soil (DES), Version 2** (DOI 10.25919/djdn-5x77).
 - **Exact reason selected:** AWC has the strongest direct mechanistic link to dryland-crop water storage in the WA wheatbelt. DES is required to cap the nominal 0–100 cm integration where mapped A- and B-horizon soil depth is shallower than 1 m. DES is not equivalent to effective crop rooting depth and does not represent chemical, physical, or crop-specific root constraints.
 - **Recommended depths:** AWC at 0–5, 5–15, 15–30, 30–60, and 60–100 cm, capped by DES where mapped soil depth is shallower. Exclude 100–200 cm from the primary metric.
 - **Recommended target-cell aggregation:** build one full-WA artifact on canonical AWRA-L cells derived from authoritative source coordinates, using area-weighted aggregation in Australian Albers (EPSG:3577). Operational runs select exact coordinate subsets; they do not re-harmonise SLGA. Report source coverage and mapped dispersion per full target-cell footprint.
+- **Verified uncertainty components:** AWC v2 provides EV/05/95; DES v2 provides EV/10/90. Any combined lower/upper storage products are explicitly mixed-quantile scenarios, not a formal confidence interval.
 - **Interpretive limit:** integrated AWC provides static modelled storage-capacity context. AWRA-L percentile rank plus AWC does **not** reveal current water storage in millimetres, distance from wilting, or crop-specific PAWC.
 - **Stratification approach:** to be decided after the pilot and DPIRD soil-science review. If quantiles are used, they require a fixed declared reference domain and persisted cut points.
 - **Confidence in recommendation:** High for an AWC-centred pilot; Moderate for DES-based profile capping; High for the operational/harmonisation design.
@@ -80,7 +81,7 @@ Scores: 3 = strong/high, 2 = moderate, 1 = weak/low. Evidence strength (H/M/L/U=
 **Interpretation:** AWC is the clear leader; mapped DES is the best available profile-truncation complement but is not effective rooting depth. Texture/BD/SOC/CFG cluster lower mainly because they are redundant with AWC. The unweighted totals are only a transparent expert-screening aid, not a calibrated quantitative ranking. Reconstructed DUL−L15 reproduces AWC while mixing product lineages.
 
 ## 7. Current SLGA product inventory (verified 12 Aug 2026)
-Source of truth: TERN Landscapes / CSIRO. SLGA products are 3 arc-second (~90 m) rasters, GlobalSoilMap-compliant, CC BY 4.0, delivered as Cloud-Optimised GeoTIFFs. Standard components per depth: **EV** (estimated value), **5** (5th-percentile lower confidence limit), **95** (95th-percentile upper confidence limit); an **EXT** extrapolation layer exists for some v2 products. Standard depths and codes: 000_005, 005_015, 015_030, 030_060, 060_100, 100_200. CRS: geographic lon/lat on GDA94/WGS84 datum (EPSG:4326; the WCS services historically expose EPSG:4283 GDA94). Continental extent per AWC v2 metadata: north −10.000416666, south −44.000416667, west 112.999583333, east 153.999583334.
+Source of truth: TERN Landscapes / CSIRO. SLGA products are 3 arc-second (~90 m) rasters, GlobalSoilMap-compliant, CC BY 4.0, delivered as Cloud-Optimised GeoTIFFs. Component percentiles are product-specific: AWC v2 uses **EV/05/95**, while DES v2 uses **EV/10/90**. An **EXT** extrapolation layer exists for some other v2 products. Standard AWC depths and codes are 000_005, 005_015, 015_030, 030_060, 060_100, and 100_200; Release 1 excludes 100_200. DES is a single 000_200 layer. The live COG CRS is EPSG:4326. Continental bounds are north −10.000416666, south −44.000416667, west 112.999583333, and east 153.999583334.
 
 Verified attribute codes and units (SLGA file-naming convention page): AWC (%), BDW/BDF (g/cm³), SOC (%), CLY/SLT/SND (%), CFG (%), DER Depth of Regolith (m), DES Depth of Soil (m), ECD (dS/m), CEC/ECE (meq/100g), PHW/PHC, NTO/PTO (%), DUL (%), L15 (%), SOF, AVP (mg/kg).
 
@@ -88,11 +89,11 @@ Drought-relevant products and status:
 - **AWC — Available (Volumetric) Water Capacity, Version 2.** DOI **10.25919/4jwj-na34** (Searle, Somarathna & Malone 2023). Units **percent** (volumetric %); computed as DUL−L15 per layer with confidence limits from combined DUL/L15 variances; six depths + 5/95 CI; issued 2023-11-21, modified 2026-07-07; current. Metadata UUID 482301c2-b9a1-4345-b142-815f9b37890a.
 - **DUL — Drained Upper Limit, Version 1.** DOI **10.25919/jnvd-3a26** (Searle & Somarathna 2022). Units percent; six depths + 5/95 CI; current (no v2 exists).
 - **L15 — 15-Bar Lower Limit, Version 1.** DOI **10.25919/awp8-nv68** (Searle & Somarathna 2022). Units percent; six depths + 5/95 CI; current.
-- **DES — Depth of Soil (A & B horizons), Version 2.** DOI **10.25919/djdn-5x77**; units metres; supersedes Release 1 (DOI 10.4225/08/546F540FE10AA); delivered as one 0–200 cm EV layer plus 5th/95th uncertainty layers; current. DES is mapped soil depth, not crop-specific effective rooting depth.
+- **DES — Depth of Soil (A & B horizons), Version 2.** DOI **10.25919/djdn-5x77**; units metres; supersedes Release 1 (DOI 10.4225/08/546F540FE10AA); delivered as one 0–200 cm EV layer plus 10th/90th uncertainty layers; current. DES is mapped soil depth, not crop-specific effective rooting depth.
 - **DER — Depth of Regolith, Release 2.** DOI 10.4225/08/55B835574E991 (Wilford et al. 2015). Units metres; cross-validation R²≈0.38 (weak). Depth to hard rock, not rooting depth.
 - **CLY / SND / SLT — texture, Version 2**; **BDW — Bulk Density (Whole Earth), Release 2** (DOI 10.25919/gxyn-pd07); **SOC — Organic Carbon, Version 2**; **CFG — Coarse Fragments** (v2 suite). All six depths + 5/95 CI, CC BY 4.0.
 
-**COG access:** base path `https://data.tern.org.au/model-derived/slga/NationalMaps/SoilAndLandscapeGrid/{ATTR}/{version}/`. Candidate exact identifiers and date tokens are listed in Section 8 and require authenticated live verification. **Authentication:** use the current TERN API-key method established by the live endpoint; never persist or log credentials.
+**COG access:** base path `https://data.tern.org.au/model-derived/slga/NationalMaps/SoilAndLandscapeGrid/{ATTR}/{version}/`. The exact live-verified identifiers and date tokens are listed in Section 8 and the tracked source manifest. **Authentication:** use the current TERN API-key method established by the live endpoint; never persist or log credentials.
 
 **Fitness-for-purpose caveats:** SLGA is interpolated from sparse observations; CSIRO states that key functional properties such as PAWC are not accurate enough for farm-management decisions. A GRDC comparison on a northern NSW farm—not a WA validation—reported 7.8 percentage-point error and 4.9 percentage-point overprediction for 30–60 cm SLGA clay and found that SLGA missed within-paddock variability. WA coarse-fragment results provide separate evidence for that property only. Known concerns include edge artefacts, regional-model seams, and reduced accuracy at depth. AWC/DES require WA-focused review and must not be represented as paddock-scale truth.
 
@@ -107,10 +108,10 @@ Drought-relevant products and status:
 **DES Version 2** — DOI 10.25919/djdn-5x77; units metres; date token `20190901`:
 
 - `DES_000_200_EV_N_P_AU_TRN_C_20190901`
-- `DES_000_200_05_N_P_AU_TRN_C_20190901`
-- `DES_000_200_95_N_P_AU_TRN_C_20190901`
+- `DES_000_200_10_N_P_AU_TRN_C_20190901`
+- `DES_000_200_90_N_P_AU_TRN_C_20190901`
 
-These identifiers and URLs were cross-checked against the clean `HEAD` metadata in the sibling SLGApy repository. An authenticated one-window live check must verify every pinned COG profile and URL before implementation acceptance; no runtime shorthand resolution or product substitution is allowed.
+The authenticated one-window check completed on 12 August 2026. All 18 approved COGs were accessible and shared the expected EPSG:4326 grid, transform, bounds, COG overviews, units, and lower ≤ EV ≤ upper ordering. The originally proposed DES `05`/`95` URLs returned HTTP 404; the authoritative directory and STAC sidecars prove that DES v2 uses `10`/`90`. The exact live-verified IDs, URLs, published STAC multihashes, sizes, profiles, and known upstream metadata caveats are pinned in `manifests/slga_awc_des_sources_v1.json`. No runtime shorthand resolution or product substitution is allowed.
 
 **Provenance to record for every layer:** full identifier, attribute code, product title, version, DOI, depth code, component, native resolution (3″), actual source CRS/datum, nodata, retrieval URL and timestamp, checksum, and CC BY 4.0 licence.
 
@@ -125,7 +126,7 @@ Convert per-layer volumetric AWC (%) to a millimetre storage total over 0–100 
 - Do **not** simply sum or average the percent layers; a depth-weighted *mean* percent is only acceptable as a secondary descriptor, not as the storage metric.
 - Cap integration at mapped DES where DES < 1 m, mirroring the official AWC “to soil depth or designated depth, whichever is shallowest” convention. This cap represents mapped A- and B-horizon depth, not effective crop rooting depth; chemical, physical, and crop-specific rooting constraints remain outside scope.
 - Exclude 100–200 cm from the primary metric (outside the AWRA-L 0–100 cm root-zone signal); include it only as a separate, clearly-labelled deep-storage diagnostic if ever needed.
-- Uncertainty: carry 05/95 layers through the same DES-capped thickness calculation as lower/upper scenarios. Do not claim a profile confidence level without joint bootstrap or covariance information.
+- Uncertainty: carry AWC 05/95 and DES 10/90 layers through the same DES-capped thickness calculation as lower/upper scenarios. Because their marginal quantiles differ and joint dependence is unknown, label the combined products mixed-quantile uncertainty scenarios and do not claim a profile confidence level.
 
 ## 10. Spatial harmonisation recommendation
 - **Target grid:** the explicit builder derives a canonical full-WA target grid from authoritative AWRA-L latitude/longitude coordinates, validates monotonicity, spacing and cell-centre interpretation, and persists those coordinates. Do not hardcode the continental grid. Operational runs must match and subset the persisted coordinates exactly.
@@ -139,21 +140,21 @@ Convert per-layer volumetric AWC (%) to a millimetre storage total over 0–100 
 - **MAUP / change-of-support caveat:** aggregating 90 m model predictions to ~5 km is a change-of-support operation; the mean can misrepresent any paddock. Report mapped within-cell dispersion alongside the mean, clearly labelled as dispersion among model predictions rather than observed soil heterogeneity.
 
 ## 11. Confidence-interval and uncertainty treatment
-- The **5** and **95** layers are the modelled **5th- and 95th-percentile confidence limits** of the digital-soil-mapping prediction (from 50 bootstrapped Cubist realisations), i.e. a ~90% prediction interval, NOT measurement error and NOT spatial-variability bounds.
-- Legitimate uses: (a) compute an **uncertainty width** (95−5) per cell after identical depth-integration and spatial aggregation; (b) support **flagging** of high-uncertainty cells; (c) produce **group/stratum-level uncertainty summaries**; (d) **fitness-for-purpose reporting**.
-- Do **not** invent numeric exclusion thresholds or "acceptable uncertainty" cut-offs; expose the width and let the soil scientist set any rule.
-- Carry lower and upper layers through the same thickness and area operations as EV, but label the results **lower/upper uncertainty scenarios** and their difference an **uncertainty-width proxy**. Marginal depth-specific limits do not establish a formal integrated 90% interval without joint bootstrap realisations or covariance information.
+- AWC **05/95** layers are modelled 5th- and 95th-percentile confidence limits. DES **10/90** layers are modelled 10th- and 90th-percentile confidence limits. These are prediction uncertainty products, not measurement error or spatial-variability bounds.
+- Legitimate uses: (a) compute property-specific uncertainty widths after identical depth and spatial operations; (b) support flagging of high-uncertainty cells; (c) produce group/stratum-level uncertainty summaries; and (d) support fitness-for-purpose reporting.
+- Do **not** invent numeric exclusion thresholds or "acceptable uncertainty" cut-offs; expose the widths and let the soil scientist set any rule.
+- Carry lower and upper layers through the same thickness and area operations as EV, but label the resulting storage values **mixed-quantile lower/upper uncertainty scenarios** and their difference an **uncertainty-width proxy**. AWC and DES use different marginal quantiles, and marginal depth-specific limits do not establish a formal integrated confidence interval without joint realisations or covariance information.
 - Always label outputs as **modelled predictions with uncertainty**, never as observed PAWC.
 
 ## 12. Proposed data contract
 - **Scientific purpose:** provide a stable, uncertainty-aware soil "bucket size" (integrated 0–100 cm AWC storage, mm) on the AWRA-L 0.05° grid to interpret — not re-predict — root-zone soil-moisture percentiles for WA agricultural drought reporting.
 - **Approved MVP properties:** AWC v2 plus DES v2. The primary metric is DES-capped modelled AWC storage capacity over a maximum nominal depth of 0–100 cm.
-- **Exact product manifest:** as Section 8 (AWC v2 EV/05/95 × five depths; DES v2 EV/05/95 000_200).
+- **Exact product manifest:** as Section 8 and `manifests/slga_awc_des_sources_v1.json` (AWC v2 EV/05/95 × five depths; DES v2 EV/10/90 000_200).
 - **Depth interpretation:** 0–100 cm root zone via five SLGA layers; 100–200 cm excluded from primary metric.
 - **Units & transformations:** input AWC in volumetric percent and DES in metres; output modelled storage capacity in mm via DES-capped Σ(AWC%/100 × represented thickness).
-- **Expected physical ranges:** per-layer AWC ~0–25% (volumetric); integrated 0–100 cm storage ~10–200 mm for WA agricultural soils (deep sands low tens of mm; loams/clays higher, with wheatbelt PAWC typically 40–140 mm per Lawes et al. 2009); DES 0–2 m. Values outside plausible ranges are flagged.
-- **Source versioning policy:** pin exact DOI + version + COG date-stamp; AWC=v2, DES=v2, and record that DUL/L15 remain v1; no silent version upgrades.
-- **Uncertainty products & use:** carry 05/95 through as lower/upper scenarios and an uncertainty-width proxy; do not label the integrated result a formal confidence interval or threshold it without review.
+- **Range handling:** validate dtype, nodata, units, finite/non-negative values, and pinned source metadata before transformation. Do not reject valid source data using the earlier approximate AWC 0–25% or DES 0–2 m expectations: live STAC maxima reach 71% for an AWC upper layer and 2.75 m for DES90. DES is capped at 1 m for the primary integration. Pilot distributions will inform non-fatal scientific plausibility warnings.
+- **Source versioning policy:** pin exact DOI + version + COG date-stamp + STAC multihash; AWC=v2, DES=v2, and record that DUL/L15 remain v1; no silent version upgrades.
+- **Uncertainty products & use:** carry AWC 05/95 and DES 10/90 through as mixed-quantile lower/upper scenarios and an uncertainty-width proxy; do not label the integrated result a formal confidence interval or threshold it without review.
 - **Spatial target grid:** persist a canonical full-WA AWRA-L grid derived from authoritative source coordinates; require exact coordinate matching when operational runs subset the artifact.
 - **Source-to-target aggregation:** area-weighted mean in EPSG:3577; fractional edge pixels; continuous resampling.
 - **Minimum source-coverage rule:** report valid mapped-soil area and coverage against full target-cell area. Boundary polygons do not redefine static soil values. The classification threshold remains TBA pending review.
@@ -176,7 +177,7 @@ Convert per-layer volumetric AWC (%) to a millimetre storage total over 0–100 
 8. **Risk outputs unchanged:** regression checks prove the numerical `risk_map`, `stress_index`, existing risk summary, and risk valid mask are unchanged. Whole output files need not be byte-identical when soil provenance metadata is added.
 
 ## 14. Proposed minimal-module specification (design only)
-**(a) Approved product catalogue record/schema** — one immutable record per layer with fields: `full_product_id`, `property_code` (`AWC` or `DES`), `title`, `depth_code`, `units`, `component` (EV/05/95), `version`, `current_status`, `native_resolution` (3″), expected source CRS/datum, `cog_url`, citation, DOI, licence (CC BY 4.0), review bounds, nodata, checksum, and uncertainty relationship. Full IDs—not property codes—are the catalogue keys.
+**(a) Approved product catalogue record/schema** — one immutable record per layer with fields: `full_product_id`, `property_code` (`AWC` or `DES`), `title`, `depth_code`, `units`, property-specific `component` (AWC EV/05/95; DES EV/10/90), `version`, `current_status`, `native_resolution` (3″), expected source CRS/datum, `cog_url`, citation, DOI, licence (CC BY 4.0), review bounds, nodata, STAC multihash, and uncertainty relationship. Full IDs—not property codes—are the catalogue keys.
 
 **(b) COG retrieval adapter responsibilities** — spatial-window reads (read only the pixels overlapping the WA bounding box / target cell, exploiting COG internal tiling); read `TERN_API_KEY` from the environment and send it as an HTTP header, never persisting or logging the credential; bounded retries with backoff and explicit failure surfacing (no silent empty reads); cache keyed on product_id+version+depth+component+window+CRS, invalidated on version/DOI change; validate CRS/profile/nodata of each fetched COG against the catalogue record; preserve nodata; capture provenance (URL, timestamp, checksum).
 
@@ -218,8 +219,8 @@ Convert per-layer volumetric AWC (%) to a millimetre storage total over 0–100 
 8. External review of terminology, AWC/DES interpretation, and fitness for WA use by Karen Holmes and Dennis van Gool. **TBA.**
 
 ## 18. Recommended next implementation steps
-1. **Live-verify the manifest:** use one authenticated test window to verify pinned AWC and DES URLs, profiles, units, CRS, nodata, and date tokens against TERN/CSIRO.
-2. **Prototype AWC + DES:** fetch EV/05/95 for a WA test window; compute DES-capped modelled 0–100 cm AWC storage capacity and lower/upper scenarios.
+1. ~~**Live-verify the manifest**~~ **Completed 12 August 2026:** all 18 corrected AWC/DES sources passed authenticated access and common-grid checks. DES uses EV/10/90, not the unavailable EV/05/95 originally proposed. See `manifests/slga_awc_des_sources_v1.json` and `sessions/2026-08-12-phase5-slga-manifest-verification.md`.
+2. **Prototype AWC + DES:** fetch AWC EV/05/95 and DES EV/10/90 for a WA test window; compute DES-capped modelled 0–100 cm AWC storage capacity and mixed-quantile lower/upper scenarios.
 3. **Build harmonisation:** derive the canonical full-WA target grid from authoritative AWRA-L coordinates; area-weight in EPSG:3577; produce valid source area, full-cell area, coverage, and mapped dispersion; require exact coordinate subsets at runtime.
 4. **Persist static derived layers:** write a versioned compressed NetCDF under `data/processed/slga_awral/` plus a tracked manifest/build specification. Operational runs read this immutable derived artifact and do not refetch or recompute SLGA unless an explicit build command is run.
 5. **Reconciliation + regression tests:** prove soil strata plus uncovered cells reconcile to the valid-risk domain and numerical risk outputs/valid mask remain unchanged.
@@ -247,7 +248,7 @@ Convert per-layer volumetric AWC (%) to a millimetre storage total over 0–100 
 | 14 | AWC v2 DOI 10.25919/4jwj-na34, units percent, 6 depths, COG, CC BY 4.0, current | TERN/researchdata.edu.au AWC v2 record |
 | 15 | DUL v1 DOI 10.25919/jnvd-3a26; L15 v1 DOI 10.25919/awp8-nv68 (current, no v2) | TERN portal; CSIRO DAP |
 | 16 | DES v2 units metres, single 0–200 layer, supersedes Release 1 (10.4225/08/546F540FE10AA) | data.gov.au / esoil.io COG store |
-| 17 | SLGA codes/units and file-naming (EV/5/95/EXT; depth codes) | SLGA GSM File Naming Conventions (esoil.io) |
+| 17 | SLGA codes/units and file-naming; live products use property-specific uncertainty components (AWC EV/05/95; DES EV/10/90) | SLGA GSM File Naming Conventions and authenticated TERN STAC/COG directories (esoil.io/data.tern.org.au) |
 | 18 | COG base path model-derived/slga/...; API key via header | esoil.io SLGA COG DataStore |
 | 19 | CSIRO: SLGA functional-property (PAWC) accuracy "not accurate enough at scales needed for farm management decisions" | CSIRO Soil inverse modelling / Digiscape pages |
 | 20 | SLGA clay 30–60 cm accuracy 7.8%, +4.9% bias vs on-farm; v2 ~90% within 90% envelope | GRDC constraint-mapping update; Malone et al. 2025 (Geoderma) |
@@ -286,4 +287,4 @@ Convert per-layer volumetric AWC (%) to a millimetre storage total over 0–100 
 - SLGA GEE catalogue (band/unit reference). https://developers.google.com/earth-engine/datasets/catalog/CSIRO_SLGA
 
 ---
-*Prepared as a scientific decision-support brief and corrected after project review. No code implemented; existing risk thresholds, weights and valid mask remain unchanged; soil properties are interpretive strata only, not new risk predictors. Exact COG availability and profiles still require authenticated live verification before build acceptance.*
+*Prepared as a scientific decision-support brief and corrected after project review and authenticated source verification. No builder code has been implemented; existing risk thresholds, weights, and valid mask remain unchanged; soil properties are interpretive strata only, not new risk predictors. Future builds must revalidate live source identity against the tracked pinned manifest.*

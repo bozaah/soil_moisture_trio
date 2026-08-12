@@ -97,6 +97,7 @@ All outputs (`.nc`, `_summary.json`, risk PNG, `stress_diagnostics.png`) land in
 - [sessions/2026-08-12-sprint12-runtime-surface-trim.md](sessions/2026-08-12-sprint12-runtime-surface-trim.md) — Sprint 12: removed raw soil-moisture compatibility and Folium HTML surfaces
 - [sessions/2026-08-12-sprint13-correctness-doc-consolidation.md](sessions/2026-08-12-sprint13-correctness-doc-consolidation.md) — Sprint 13: validated model configuration, masking/integration regressions, and methodology doc consolidation
 - [sessions/2026-08-12-phase5-slga-planning.md](sessions/2026-08-12-phase5-slga-planning.md) — Phase 5 planning: backlog priorities, SLGApy assessment, and project-owned SLGA module decision
+- [sessions/2026-08-12-phase5-slga-manifest-verification.md](sessions/2026-08-12-phase5-slga-manifest-verification.md) — authenticated AWC/DES source verification, corrected DES 10/90 components, and pinned source manifest
 
 ## First Principles
 
