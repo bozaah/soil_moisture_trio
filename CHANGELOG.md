@@ -4,6 +4,32 @@ All notable changes per sprint/iteration. Format: `## [sprint] YYYY-MM-DD — Ti
 
 ---
 
+## [Phase 5] 2026-08-12 — Deterministic B25b contract and small-window prototype
+
+### Added
+
+- `docs/slga-builder-contract.md` — deterministic source, integration, harmonisation, artifact, checksum, runtime-subset, and failure contract with unresolved science decisions kept explicit
+- `src/soil_moisture_trio/slga/` — narrow modules for strict full-ID catalogue/STAC validation, authenticated COG window reads, native-grid DES-capped storage integration, and EPSG:3577 fractional-overlap aggregation
+- deterministic tests for source/version drift, missing credentials, the two approved upstream metadata exceptions, nodata, malformed values, uncertainty ordering, partial/non-overlap, CRS/grid mismatch, exact coordinate subsets, and reproducibility
+- one opt-in authenticated AWC window test gated by `RUN_SLGA_LIVE_TESTS=1` and `TERN_API_KEY`
+
+### Changed
+
+- `pyproject.toml` / `uv.lock` — declared Rasterio and pyproj as direct runtime dependencies because project code imports them directly
+- B25b storage cases expose AWC-only and DES-only uncertainty effects separately from provisional mixed AWC05+DES10 / AWC95+DES90 scenarios
+
+### Verified
+
+- a fresh authenticated 9×9 native-window prototype validated all 18 pinned AWC/DES sources, integrated all seven storage cases, and mapped them to a synthetic 0.05° target window with explicit ~2.25% source coverage
+- `uv lock --check` succeeds; `uv run pytest -q` → `54 passed, 1 skipped`; `uv run ruff check .` and `git diff --check` pass
+- existing risk modules, thresholds, masks, summaries, and outputs are unchanged; no full-WA artifact was built
+
+### Remaining gates
+
+- pin the authoritative canonical full-WA AWRA-L coordinate source and checksum
+- implement/review deterministic artifact writing and runtime loading, then address scalable full-WA tiling without changing the numerical contract
+- obtain the planned soil-science review before bands, coverage thresholds, or operational soil summaries are approved
+
 ## [Phase 5] 2026-08-12 — Authenticated SLGA source-manifest verification
 
 ### Added
