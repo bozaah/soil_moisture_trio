@@ -36,24 +36,46 @@ Items are grouped by theme. See `CHANGELOG.md` for what was done each sprint.
 
 ---
 
-## Future / Backlog
+## Current Priorities and Sequencing
 
-- **B14** — Regional aggregation: aggregate risk map to administrative units (e.g., NRM regions, catchments) for decision-support outputs.
+The immediate scientific direction is soil-property stratification. Phase 5 adds interpretation and grouped summaries around the existing per-cell outputs; it must not change the stress formula, configured thresholds, risk classification, or invalid-cell handling.
 
-- **B15** — Trend analysis: compare risk maps across multiple years/seasons to detect drying trends.
+### Now — Phase 5: soil-property stratification
 
-- **B16** — Hotspot detection: identify persistent high-risk cells across consecutive time windows.
+- **B25 — Soil-property stratification (central scientific work):** integrate approved Soil and Landscape Grid of Australia (SLGA) soil-property layers, followed by approved WA-specific digital soil maps when available, and summarise existing drought-stress outputs by scientifically defensible soil groups or property bands. Phase 5 will use a deliberately narrow project-owned SLGA module rather than adding the general-purpose `SLGApy` package as a production dependency. `SLGApy` remains a useful reference and exploratory metadata tool. Decisions are recorded in `sessions/2026-05-11_ssa26-abstract-submission.md` and `sessions/2026-08-12-phase5-slga-planning.md`.
+
+  - **B25a — Scientific product selection and data contract:** define the questions the stratification must answer and evaluate candidate properties for causal relevance to drought response, decision value, redundancy, depth compatibility with the AWRA-L 0–100 cm root-zone signal, uncertainty, and spatial coverage. Approve exact full SLGA product identifiers—not ambiguous property codes or a generic “SLGA v2” label—and record property, depth, units, modelled-value/confidence component, version and current-version status, native resolution, source, citation, licence, expected range, and fitness-for-purpose limitations. Define continuous bands versus derived groups; target-grid aggregation statistics; minimum source-coverage rules; spatial tolerances; missing-data behavior; boundary interaction; and explicit acceptance criteria before implementation.
+
+  - **B25b — Minimal project-owned SLGA module (enabling work):** implement only the approved Phase 5 requirements, not a general SLGA client or CLI. Maintain a small approved-product catalogue; read spatial windows from the source COGs; use `TERN_API_KEY` without persisting credentials; preserve nodata; validate CRS, transform, shape, units, ranges, and metadata; and return values plus complete provenance. Keep property-specific harmonisation separate from retrieval: aggregate the 90 m predictions to the exact AWRA-L grid using the B25a-approved method and report source coverage per target cell. Do not assume bilinear grid matching or COG overview sampling is equivalent to area aggregation. Put tunable runtime choices in `ClassifierConfig`, follow project cache conventions, declare any directly imported raster library as a direct dependency, mock network access in unit tests, and gate any authenticated live check as an opt-in integration test.
+
+  - **B14a — Generic grouped-summary framework (enabling work):** aggregate the existing `risk_map`, `stress_index`, and risk `valid_mask` against a grouping raster or polygon layer without reclassifying cells. Maintain a separate `soil_summary_mask = risk_valid_mask & acceptable_soil_coverage`; missing SLGA values must not turn otherwise valid risk cells into `-1`. Make all denominators explicit and report group cell counts, valid risk coverage, soil-data coverage, uncovered risk cells, risk-category counts/percentages, and appropriate continuous-stress statistics. Design the framework so administrative regions, NRM regions, and catchments can use it later.
+
+  - **B25c — Initial SLGA stratified product:** implement a deliberately small first set of high-leverage, scientifically interpretable SLGA property bands or soil groups using the approved B25a contract and B25b access/harmonisation module. Do not attempt a comprehensive soil taxonomy in the first release.
+
+  - **B25d — Scientific and output validation:** prove that the original per-cell `risk_map`, `stress_index`, and risk valid mask are unchanged; existing invalid cells remain `-1`/`NaN`; soil-summary exclusions are tracked separately; grouped totals reconcile with the unstratified summary; material soil-data coverage gaps and uncertainty are visible rather than silently dropped; and outputs record full product identity, source, version, component, depth, units, band definitions, aggregation/alignment method, coverage rule, observed coverage, citation, and licence. Test nodata, partial coverage, non-overlap, grid/CRS mismatch, invalid metadata, authentication failure, and grouping edge cases.
+
+### Next — scientifically and operationally important
+
+- **B23 — Seasonal stress index calibration:** assess whether the current year-round Critical/Alert/Watch thresholds (0.85/0.60/0.35) create seasonal bias because VPD and temperature are systematically higher in summer. Any replacement thresholds must be configuration-driven and calibrated using the WA soil-moisture baseline together with historical SILO. Keep the current classification unchanged during Phase 5. Design decision logged in `sessions/2026-03-25-sprint7-persistent-cache-bulletin.md`.
+
+- **B24 — Rangelands / multi-region support:** support a full-WA source download and cache from which SWAZ, rangelands, pastoral zones, and other approved boundaries can be clipped and masked consistently. Reuse the grouped-summary architecture where appropriate. The current per-boundary `--boundary-gpkg` workflow remains the operational default until this is implemented. Decision logged in `sessions/2026-03-25-sprint9-boundary-gpkg.md`.
+
+### Later — useful extensions
+
+- **B15 — Trend analysis:** compare scientifically comparable risk maps across years or seasons to detect drying trajectories. Requires stable run metadata, repeatable periods, and a retained archive of comparable outputs.
+
+- **B16 — Persistent hotspot detection:** identify cells or groups that remain at elevated risk across consecutive, comparable windows. Define persistence and missing-period rules first; implement after the temporal foundations in B15.
+
+### Conditional / parked
+
+- **B20 — ML classifier:** do not replace the rule-based model unless independent labelled outcomes become available, such as historical expert labels, observed yield or pasture impacts, or defensible remote-sensing ground truth. Any future model requires independent train/test data, real observed predictors, spatial cross-validation, and comparison against the rule-based baseline.
+
+### Engineering optimisation — evidence required
+
+- **B19 — Async data loading:** consider concurrent loading for large-area or multi-year runs only after profiling demonstrates that loading is a material bottleneck. This is an engineering optimisation, not part of the Phase 5 scientific deliverable.
+
+### Recently resolved foundations
 
 - ~~**B17**~~ **RESOLVED (Sprint 13)** — A mocked orchestration test validates `run_pipeline()` through preparation, risk assessment, and NetCDF/JSON persistence without network access.
 
 - ~~**B18**~~ **RESOLVED (Sprint 13)** — Regression coverage simulates a missing decile dataset through `prepare_data()` and asserts a clear `RuntimeError`.
-
-- **B19** — Async data loading: integrate the pattern from `example_dataloader.py` into `DryWetClassifierPipeline` for large-area or multi-year runs.
-
-- **B20** — ML classifier: only consider replacing the rule-based risk model when independent labelled data exists (historical expert labels or remote-sensing ground truth). Any future model requires independent train/test data, spatial cross-validation, and real observed predictors.
-
-- **B23** — Seasonal stress index thresholds (Option C): replace the current year-round default Critical/Alert/Watch thresholds (0.85/0.60/0.35) with season-specific configured values calibrated so that the long-run proportion of cells in each category is stable across months. Motivation: atmospheric VPD and temperature are systematically higher in summer, which means the current defaults are implicitly stricter in winter/spring than summer. Requires a calibration pass using the WA monthly baseline (`data/awral_decile_sm_pct_WA_monthly.nc`) together with historical SILO. Design decision logged in `sessions/2026-03-25-sprint7-persistent-cache-bulletin.md`.
-
-- **B24** — Rangelands / multi-region support (Option A): download a full-WA rectangle once and cache it at that scale; downstream runs (SWAZ, rangelands, pastoral zones) clip/mask from the single cache using their respective boundary files. This would reduce repeated downloads across overlapping WA regions and enable a consistent multi-region monitoring product from one set of inputs. The current `--boundary-gpkg` approach (Option B, Sprint 9) remains the operational default until this is implemented. Decision logged in `sessions/2026-03-25-sprint9-boundary-gpkg.md`.
-
-- **B25** — Soil-property stratification: integrate SLGA v2 soil property layers, followed by approved WA-specific digital soil maps when available, and summarise drought stress by scientifically defensible soil groups or property bands. Define the soil data contract, spatial alignment, missing-data behavior, and validation criteria before implementation. Planned direction recorded in `sessions/2026-05-11_ssa26-abstract-submission.md`.
