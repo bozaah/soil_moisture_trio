@@ -18,6 +18,12 @@ def run_pipeline(
     year: int | None = None,
     start_date: str | None = None,
     end_date: str | None = None,
+    dryness_weight: float | None = None,
+    vpd_weight: float | None = None,
+    temperature_weight: float | None = None,
+    watch_risk_threshold: float | None = None,
+    alert_risk_threshold: float | None = None,
+    critical_risk_threshold: float | None = None,
     silo_variables: list[str] | None = None,
     silo_cache_dir: str | None = None,
     silo_cache_max_mb: int | None = None,
@@ -48,6 +54,18 @@ def run_pipeline(
         config_kwargs["start_date"] = start_date
     if end_date is not None:
         config_kwargs["end_date"] = end_date
+    if dryness_weight is not None:
+        config_kwargs["dryness_weight"] = dryness_weight
+    if vpd_weight is not None:
+        config_kwargs["vpd_weight"] = vpd_weight
+    if temperature_weight is not None:
+        config_kwargs["temperature_weight"] = temperature_weight
+    if watch_risk_threshold is not None:
+        config_kwargs["watch_risk_threshold"] = watch_risk_threshold
+    if alert_risk_threshold is not None:
+        config_kwargs["alert_risk_threshold"] = alert_risk_threshold
+    if critical_risk_threshold is not None:
+        config_kwargs["critical_risk_threshold"] = critical_risk_threshold
     if silo_variables:
         config_kwargs["silo_variables"] = silo_variables
     if silo_cache_dir is not None:
@@ -111,6 +129,7 @@ def run_pipeline(
             summary=risk_summary,
             base_path=risk_output_prefix,
             time_metadata=pipeline.time_metadata,
+            model_metadata=config.risk_model_parameters(),
         )
         LOGGER.info("Risk layer saved to %s and summary to %s", files["netcdf"], files["summary"])
 
@@ -152,6 +171,12 @@ if __name__ == "__main__":
     parser.add_argument("--year", type=int, default=None)
     parser.add_argument("--start-date", type=str, default=None)
     parser.add_argument("--end-date", type=str, default=None)
+    parser.add_argument("--dryness-weight", type=float, default=None)
+    parser.add_argument("--vpd-weight", type=float, default=None)
+    parser.add_argument("--temperature-weight", type=float, default=None)
+    parser.add_argument("--watch-risk-threshold", type=float, default=None)
+    parser.add_argument("--alert-risk-threshold", type=float, default=None)
+    parser.add_argument("--critical-risk-threshold", type=float, default=None)
     parser.add_argument("--silo-variable", dest="silo_variables", action="append", default=None)
     parser.add_argument("--silo-cache-dir", default=None)
     parser.add_argument("--silo-cache-max-mb", type=int, default=None)
@@ -175,6 +200,12 @@ if __name__ == "__main__":
         year=args.year,
         start_date=args.start_date,
         end_date=args.end_date,
+        dryness_weight=args.dryness_weight,
+        vpd_weight=args.vpd_weight,
+        temperature_weight=args.temperature_weight,
+        watch_risk_threshold=args.watch_risk_threshold,
+        alert_risk_threshold=args.alert_risk_threshold,
+        critical_risk_threshold=args.critical_risk_threshold,
         silo_variables=args.silo_variables,
         silo_cache_dir=args.silo_cache_dir,
         silo_cache_max_mb=args.silo_cache_max_mb,

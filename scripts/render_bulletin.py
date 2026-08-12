@@ -7,6 +7,8 @@ from pathlib import Path
 
 from jinja2 import Environment, FileSystemLoader
 
+from src.soil_moisture_trio.config import ClassifierConfig
+
 LOGGER = logging.getLogger(__name__)
 
 
@@ -25,6 +27,18 @@ def render_bulletin(summary_json: Path, map_png: Path | None, output: Path, regi
 
     summary = payload["summary"]
     time_meta = payload.get("time_metadata", {})
+    model_meta = {
+        **ClassifierConfig().risk_model_parameters(),
+        **payload.get("model_metadata", {}),
+    }
+    validated_model = ClassifierConfig(
+        **{
+            key: value
+            for key, value in model_meta.items()
+            if key in ClassifierConfig.model_fields
+        }
+    )
+    model_meta = validated_model.risk_model_parameters()
 
     def pct(key: str) -> str:
         val = summary[key]["percentage"] * 100
@@ -51,6 +65,14 @@ def render_bulletin(summary_json: Path, map_png: Path | None, output: Path, regi
         "watch_pct":    pct("watch"),
         "low_pct":      pct("low"),
         "map_png": _relative_png(map_png, output),
+        "dryness_weight_pct": f'{model_meta["dryness_weight"] * 100:g}',
+        "vpd_weight_pct": f'{model_meta["vpd_weight"] * 100:g}',
+        "temperature_weight_pct": f'{model_meta["temperature_weight"] * 100:g}',
+        "critical_temp_threshold": f'{model_meta["critical_temp_threshold"]:g}',
+        "critical_vpd_threshold_kpa": f'{model_meta["critical_vpd_threshold"] / 10:g}',
+        "watch_risk_threshold": f'{model_meta["watch_risk_threshold"]:g}',
+        "alert_risk_threshold": f'{model_meta["alert_risk_threshold"]:g}',
+        "critical_risk_threshold": f'{model_meta["critical_risk_threshold"]:g}',
     }
 
     templates_dir = Path(__file__).parent.parent / "templates"

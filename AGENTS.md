@@ -95,6 +95,7 @@ All outputs (`.nc`, `_summary.json`, risk PNG, `stress_diagnostics.png`) land in
 - [sessions/2026-05-11_ssa26-abstract-submission.md](sessions/2026-05-11_ssa26-abstract-submission.md) — SSA 2026 abstract submission and planned soil-property stratification direction
 - [sessions/2026-08-12-sprint11-reproducibility-cleanup.md](sessions/2026-08-12-sprint11-reproducibility-cleanup.md) — Sprint 11: reproducible lock/tests/CI cleanup and removal of the unused binary classification surface
 - [sessions/2026-08-12-sprint12-runtime-surface-trim.md](sessions/2026-08-12-sprint12-runtime-surface-trim.md) — Sprint 12: removed raw soil-moisture compatibility and Folium HTML surfaces
+- [sessions/2026-08-12-sprint13-correctness-doc-consolidation.md](sessions/2026-08-12-sprint13-correctness-doc-consolidation.md) — Sprint 13: validated model configuration, masking/integration regressions, and methodology doc consolidation
 
 ## First Principles
 

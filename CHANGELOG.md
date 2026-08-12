@@ -4,6 +4,40 @@ All notable changes per sprint/iteration. Format: `## [sprint] YYYY-MM-DD — Ti
 
 ---
 
+## [Sprint 13] 2026-08-12 — Validated risk configuration and documentation consolidation
+
+### Changed
+
+- `ClassifierConfig` — added configurable stress weights and Watch/Alert/Critical thresholds; validates weights sum to 1, thresholds are strictly ordered, dates are not inverted, and spatial minimums are below maximums
+- `risk.py` — uses config-driven weights and bands, writes `NaN` to continuous stress outside `valid_mask`, and persists model parameters in NetCDF/JSON outputs
+- `pipeline.py` / `data_sources.py` — reject inverted time and spatial ranges instead of silently coercing or forwarding them
+- `main.py` — exposes weight and risk-threshold CLI flags and passes model metadata into persisted outputs
+- bulletin rendering — reads and validates saved model metadata so methodology text reflects the actual run configuration
+- `docs/technical_report.md` — became the canonical methodology and threshold reference; architecture, CLI, README, and backlog were aligned with validated configuration and output metadata
+
+### Removed
+
+- `docs/risk-model.md` and `docs/thresholds.md`; their non-duplicated content is consolidated into `docs/technical_report.md`
+
+### Added
+
+- validation tests for weights, risk thresholds, dates, and spatial bounds
+- regression coverage for polygon stress masking, missing decile data through `prepare_data()`, saved model metadata, model-aware bulletin text, and fresh mocked `run_pipeline()` orchestration
+
+### Resolved
+
+- B10 — configurable weights and risk bands
+- B17 — mocked end-to-end orchestration test
+- B18 — missing-decile failure regression
+
+### Verified
+
+- `uv run pytest -q` → `26 passed`
+- `uv run ruff check` → `All checks passed!`
+- CLI smoke test confirms all six model-configuration flags are exposed
+
+---
+
 ## [Sprint 12] 2026-08-12 — Runtime surface trim
 
 ### Changed

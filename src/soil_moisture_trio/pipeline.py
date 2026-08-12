@@ -119,7 +119,7 @@ class DryWetClassifierPipeline:
         start_target = pd.Timestamp(self.config.start_date) if self.config.start_date else pd_times[0]
         end_target = pd.Timestamp(self.config.end_date) if self.config.end_date else (pd.Timestamp(self.config.start_date) if self.config.start_date else pd_times[-1])
         if end_target < start_target:
-            end_target = start_target
+            raise ValueError("end_date must be on or after start_date.")
         mask = (pd_times >= start_target) & (pd_times <= end_target)
         if not mask.any():
             raise ValueError(f"No data found between {start_target} and {end_target}.")
@@ -360,7 +360,7 @@ class DryWetClassifierPipeline:
         else:
             end = date(self.config.year, 12, 31)
         if end < start:
-            end = start
+            raise ValueError("end_date must be on or after start_date.")
         return start, end
 
     @staticmethod

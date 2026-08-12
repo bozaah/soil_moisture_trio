@@ -95,6 +95,32 @@ def test_weather_tools_loader_uses_bbox_scoped_cache_dir(monkeypatch, tmp_path):
     assert output_dirs[1].parent == tmp_path
 
 
+@pytest.mark.parametrize(
+    "bounds, message",
+    [
+        ((-34.0, -35.0, 150.0, 151.0), "min_lat must be less than max_lat"),
+        ((-35.0, -34.0, 151.0, 150.0), "min_lon must be less than max_lon"),
+    ],
+)
+def test_weather_tools_loader_rejects_inverted_bounds(bounds, message):
+    loader = WeatherToolsSiloLoader(
+        cache_dir=None,
+        cache_max_size_mb=100,
+        overview_level=None,
+        buffer_degrees=0.0,
+    )
+
+    with pytest.raises(ValueError, match=message):
+        loader.load(
+            variables=["max_temp"],
+            start_date=date(2024, 1, 1),
+            end_date=date(2024, 1, 1),
+            bounds=bounds,
+            target_lats=np.array([-34.75, -34.25]),
+            target_lons=np.array([150.25, 150.75]),
+        )
+
+
 def test_weather_tools_loader_rejects_missing_variable_payload(monkeypatch):
     stack = np.arange(4, dtype=np.float32).reshape(1, 2, 2)
     profile = {

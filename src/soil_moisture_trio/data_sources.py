@@ -59,6 +59,10 @@ class WeatherToolsSiloLoader:
             raise ValueError("end_date must be on or after start_date.")
 
         min_lat, max_lat, min_lon, max_lon = bounds
+        if min_lat >= max_lat:
+            raise ValueError("min_lat must be less than max_lat.")
+        if min_lon >= max_lon:
+            raise ValueError("min_lon must be less than max_lon.")
         geometry = self._build_geometry(min_lat, max_lat, min_lon, max_lon)
         cache_path = self._cache_dir_for_bounds(bounds)
         if cache_path is not None:

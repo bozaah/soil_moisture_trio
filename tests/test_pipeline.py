@@ -1,4 +1,5 @@
 import json
+from pathlib import Path
 
 import numpy as np
 import pytest
@@ -124,11 +125,43 @@ def test_pipeline_assess_risk_returns_summary(monkeypatch):
     assert 'invalid' in output['summary']
 
 
+def test_polygon_mask_propagates_to_risk_and_stress(monkeypatch):
+    pipeline = DryWetClassifierPipeline(ClassifierConfig())
+    pipeline.config = pipeline.config.model_copy(
+        update={"boundary_gpkg": Path("mock-boundary.gpkg")}
+    )
+    data = _mock_real_data()
+    polygon_mask = np.array(
+        [
+            [True, True, False],
+            [True, False, False],
+            [True, True, False],
+        ]
+    )
+    monkeypatch.setattr(pipeline, "_load_all_real_data", lambda: data)
+    monkeypatch.setattr(pipeline, "_build_polygon_mask", lambda lats, lons: polygon_mask)
+
+    pipeline.prepare_data()
+    report = pipeline.assess_risk()
+
+    expected_valid = polygon_mask & np.isfinite(data["soil_moisture"])
+    np.testing.assert_array_equal(pipeline.valid_mask_grid, expected_valid)
+    assert (report["risk_map"][~expected_valid] == -1).all()
+    assert np.isnan(report["stress_index"][~expected_valid]).all()
+    assert np.isfinite(report["stress_index"][expected_valid]).all()
+
+
 def test_assess_risk_levels_categorizes_cells():
     config = ClassifierConfig(
         moisture_threshold=0.25,
         critical_temp_threshold=35.0,
         critical_vpd_threshold=30.0,
+        dryness_weight=0.5,
+        vpd_weight=0.3,
+        temperature_weight=0.2,
+        watch_risk_threshold=0.25,
+        alert_risk_threshold=0.55,
+        critical_risk_threshold=0.8,
     )
     soil = np.array([[0.10, 0.22], [0.31, 0.26]])
     temp = np.array([[36.0, 34.0], [28.0, 29.0]])
@@ -141,11 +174,28 @@ def test_assess_risk_levels_categorizes_cells():
         config,
     )
 
+    expected_stress = (
+        config.dryness_weight
+        * np.clip((config.moisture_threshold - soil) / config.moisture_threshold, 0, 1)
+        + config.vpd_weight * np.clip(vpd / config.critical_vpd_threshold, 0, 1)
+        + config.temperature_weight
+        * np.clip(temp / config.critical_temp_threshold, 0, 1)
+    )
+    np.testing.assert_allclose(stress_index, expected_stress)
+
     expected = np.full(stress_index.shape, -1, dtype=np.int8)
     expected[valid_mask] = RiskLevel.LOW
-    expected[valid_mask & (stress_index >= 0.85)] = RiskLevel.CRITICAL
-    expected[valid_mask & ~(stress_index >= 0.85) & (stress_index >= 0.6)] = RiskLevel.ALERT
-    expected[valid_mask & ~(stress_index >= 0.6) & (stress_index >= 0.35)] = RiskLevel.WATCH
+    expected[valid_mask & (stress_index >= config.critical_risk_threshold)] = RiskLevel.CRITICAL
+    expected[
+        valid_mask
+        & ~(stress_index >= config.critical_risk_threshold)
+        & (stress_index >= config.alert_risk_threshold)
+    ] = RiskLevel.ALERT
+    expected[
+        valid_mask
+        & ~(stress_index >= config.alert_risk_threshold)
+        & (stress_index >= config.watch_risk_threshold)
+    ] = RiskLevel.WATCH
 
     np.testing.assert_array_equal(risk_map, expected)
 
@@ -172,6 +222,8 @@ def test_assess_risk_levels_handles_invalid_cells():
     assert summary['invalid']['count'] == 2
     assert summary['valid_cells']['count'] == 2
     assert risk_map[0, 1] == -1
+    assert np.isnan(stress_index[~valid_mask]).all()
+    assert np.isfinite(stress_index[valid_mask]).all()
 
 
 def test_save_risk_outputs_writes_files(tmp_path):
@@ -190,7 +242,16 @@ def test_save_risk_outputs_writes_files(tmp_path):
     time_meta = {'time_start': '2025-01-01T00:00:00', 'time_end': '2025-01-07T00:00:00'}
 
     base = tmp_path / "nested" / "risk_layer"
-    files = save_risk_outputs(risk_map, lats, lons, summary, base, time_metadata=time_meta)
+    model_meta = ClassifierConfig().risk_model_parameters()
+    files = save_risk_outputs(
+        risk_map,
+        lats,
+        lons,
+        summary,
+        base,
+        time_metadata=time_meta,
+        model_metadata=model_meta,
+    )
 
     assert files['netcdf'].exists()
     assert files['summary'].exists()
@@ -200,11 +261,13 @@ def test_save_risk_outputs_writes_files(tmp_path):
     assert json.loads(ds.attrs['risk_summary_json']) == summary
     for key, value in time_meta.items():
         assert ds.attrs[key] == value
+    assert json.loads(ds.attrs['risk_model_json']) == model_meta
 
     with files['summary'].open() as fp:
         payload = json.load(fp)
     assert payload['summary'] == summary
     assert payload['time_metadata'] == time_meta
+    assert payload['model_metadata'] == model_meta
 
 
 def test_save_risk_plot_creates_png(tmp_path):
@@ -228,9 +291,4 @@ def test_load_soil_moisture_data_raises_clear_error_when_decile_fails(monkeypatc
     monkeypatch.setattr(pipeline, "_load_real_netcdf", fake_load_real_netcdf)
 
     with pytest.raises(RuntimeError, match="requires the AWRAL 'sm_pct' percentile-rank product"):
-        pipeline._load_soil_moisture_data(
-            {
-                "pct_url": "decile-url",
-                "pct_var": "sm_pct",
-            }
-        )
+        pipeline.prepare_data()

@@ -10,6 +10,19 @@ Run with: `uv run python main.py [OPTIONS]`
 | `--start-date DATE` | first timestep | Start of averaging window (YYYY-MM-DD) |
 | `--end-date DATE` | start-date | End of averaging window (YYYY-MM-DD) |
 
+## Risk Model
+
+| Flag | Default | Description |
+|---|---:|---|
+| `--dryness-weight FLOAT` | 0.60 | Soil-moisture deficit weight |
+| `--vpd-weight FLOAT` | 0.25 | VPD stress weight |
+| `--temperature-weight FLOAT` | 0.15 | Temperature stress weight |
+| `--watch-risk-threshold FLOAT` | 0.35 | Minimum stress index for Watch |
+| `--alert-risk-threshold FLOAT` | 0.60 | Minimum stress index for Alert |
+| `--critical-risk-threshold FLOAT` | 0.85 | Minimum stress index for Critical |
+
+Weights must be between 0 and 1 and sum to 1. Risk thresholds must be between 0 and 1 and satisfy `watch < alert < critical`. Defaults should be retained for operational products unless a scientifically reviewed calibration specifies otherwise.
+
 ## Boundary / Bounding Box
 
 | Flag | Default | Description |
@@ -19,6 +32,8 @@ Run with: `uv run python main.py [OPTIONS]`
 | `--max-lat FLOAT` | -8.0 | |
 | `--min-lon FLOAT` | 110.0 | |
 | `--max-lon FLOAT` | 155.0 | |
+
+Date windows must satisfy `start <= end`. Manual bounds must satisfy `min_lat < max_lat` and `min_lon < max_lon`; invalid configuration fails before remote loading.
 
 ## Output Artifacts
 

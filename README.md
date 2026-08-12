@@ -86,6 +86,8 @@ All thresholds live in `ClassifierConfig` (`src/.../config.py`). Key defaults:
 | `moisture_threshold` | 0.50 | Dryness reference — departure below climatological median |
 | `critical_temp_threshold` | 40.0 °C | Normalisation ceiling for temperature factor |
 | `critical_vpd_threshold` | 32.0 hPa | Normalisation ceiling for VPD factor (3.2 kPa) |
+| `dryness_weight` / `vpd_weight` / `temperature_weight` | 0.60 / 0.25 / 0.15 | Validated to sum to 1 |
+| `watch_risk_threshold` / `alert_risk_threshold` / `critical_risk_threshold` | 0.35 / 0.60 / 0.85 | Validated in strictly increasing order |
 | `silo_cache_dir` | `~/.cache/soil_moisture_trio/silo` | Persistent tile cache; created automatically |
 
 ## SILO Cache

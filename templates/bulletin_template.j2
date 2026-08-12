@@ -33,7 +33,7 @@ _Risk map PNG not provided. Run with `--risk-plot-path` to generate._
 
 ## Methodology
 
-Soil moisture is expressed as a percentile rank (0–1) from the AWRA-L v7 decile product, calibrated against the full 1911–present historical record for each location and season. A composite stress index combines soil moisture deficit (60% weight), vapour pressure deficit (25%), and maximum temperature (15%), normalised against agronomic critical thresholds (40 °C; 3.2 kPa VPD). Risk levels are assigned from the stress index: Critical ≥ 0.85, Alert 0.60–0.85, Watch 0.35–0.60, Low < 0.35. This product describes conditions relative to historical norms — it is not a forecast of future rainfall and does not constitute a formal drought declaration.
+Soil moisture is expressed as a percentile rank (0–1) from the AWRA-L v7 decile product, calibrated against the full 1911–present historical record for each location and season. A composite stress index combines soil moisture deficit ({{ dryness_weight_pct }}% weight), vapour pressure deficit ({{ vpd_weight_pct }}%), and maximum temperature ({{ temperature_weight_pct }}%), normalised against configured critical references ({{ critical_temp_threshold }} °C; {{ critical_vpd_threshold_kpa }} kPa VPD). Risk levels are assigned from the stress index: Critical ≥ {{ critical_risk_threshold }}, Alert {{ alert_risk_threshold }}–<{{ critical_risk_threshold }}, Watch {{ watch_risk_threshold }}–<{{ alert_risk_threshold }}, Low < {{ watch_risk_threshold }}. This product describes conditions relative to historical norms — it is not a forecast of future rainfall and does not constitute a formal drought declaration.
 
 ## Caveats
 

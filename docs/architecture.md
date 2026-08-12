@@ -69,10 +69,14 @@ dryness   = clip((moisture_threshold - soil_moisture) / moisture_threshold, 0, 1
 temp_fac  = clip(temperature / critical_temp_threshold, 0, 1)
 vpd_fac   = clip(vpd / critical_vpd_threshold, 0, 1)
 
-stress_index = 0.60 * dryness + 0.25 * vpd_fac + 0.15 * temp_fac
+stress_index = dryness_weight * dryness
+             + vpd_weight * vpd_fac
+             + temperature_weight * temp_fac
+
+Default weights: 0.60 / 0.25 / 0.15
 ```
 
-Risk bands:
+Risk bands use validated `ClassifierConfig` thresholds. Defaults are:
 
 | Stress index | Risk level |
 |---|---|
@@ -81,12 +85,14 @@ Risk bands:
 | `0.60–<0.85` | Alert |
 | `>= 0.85` | Critical |
 
+Config validation requires weights to sum to 1, risk thresholds to be strictly ordered, date windows not to be inverted, and minimum spatial bounds to be less than maximum bounds.
+
 ## Output Contract
 
 | Artifact | Format | Notes |
 |---|---|---|
-| `{prefix}.nc` | NetCDF | `risk_level` variable with lat/lon coords; summary and time metadata in attributes |
-| `{prefix}_summary.json` | JSON | Per-category counts, percentages, labels, and time metadata |
+| `{prefix}.nc` | NetCDF | `risk_level` with lat/lon coords; summary, model parameters, and time metadata in attributes |
+| `{prefix}_summary.json` | JSON | Per-category statistics, time metadata, and the run's model parameters |
 | `risk PNG` | PNG | Two-panel categorical map + continuous stress index |
 | `stress_diagnostics.png` | PNG | Soil-moisture histogram and soil-moisture vs VPD scatter |
 | bulletin `.md` | Markdown | Rendered separately via `scripts/render_bulletin.py` |

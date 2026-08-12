@@ -1,6 +1,6 @@
 # Soil Moisture Trio — Technical Report
 
-**Version:** Sprint 12 | **Date:** 2026-08-12
+**Version:** Sprint 13 | **Date:** 2026-08-12
 **Status:** Operational — decile-calibrated, composite stress index risk classification
 
 ---
@@ -102,9 +102,11 @@ dryness_factor   = clip((moisture_threshold − sm_pct_rank) / moisture_threshol
 temp_factor      = clip(temperature / critical_temp_threshold, 0, 1)
 vpd_factor       = clip(vpd / critical_vpd_threshold, 0, 1)
 
-stress_index = 0.60 × dryness_factor
-             + 0.25 × vpd_factor
-             + 0.15 × temp_factor
+stress_index = dryness_weight × dryness_factor
+             + vpd_weight × vpd_factor
+             + temperature_weight × temp_factor
+
+Default: 0.60 × dryness_factor + 0.25 × vpd_factor + 0.15 × temp_factor
 ```
 
 **What each component means:**
@@ -115,26 +117,38 @@ stress_index = 0.60 × dryness_factor
 
 - **`vpd_factor`** normalises vapour pressure deficit against a critical VPD threshold (32 hPa = 3.2 kPa). High VPD accelerates plant water loss and intensifies moisture stress independently of soil water content.
 
-**Weights:** Soil moisture deficit is the primary driver (60%), with atmospheric demand (VPD, 25%) and heat (15%) as amplifiers.
+**Weights:** Soil moisture deficit is the primary driver by default (60%), with atmospheric demand (VPD, 25%) and heat (15%) as amplifiers. These values are configured through `ClassifierConfig`; validation requires each weight to be between 0 and 1 and the three weights to sum to 1.
 
 ### 3.3 Risk Level Assignment
 
-Cells are assigned to risk levels based on their stress index value:
+Cells are assigned to risk levels using validated `ClassifierConfig` thresholds. Defaults are:
 
-| Stress index | Risk level |
-|---|---|
-| ≥ 0.85 | **Critical** |
-| 0.60 – 0.85 | **Alert** |
-| 0.35 – 0.60 | **Watch** |
-| < 0.35 | **Low** |
+| Stress index | Risk level | Config field |
+|---|---|---|
+| ≥ 0.85 | **Critical** | `critical_risk_threshold` |
+| 0.60 – <0.85 | **Alert** | `alert_risk_threshold` |
+| 0.35 – <0.60 | **Watch** | `watch_risk_threshold` |
+| < 0.35 | **Low** | — |
 
-Cells with no data (ocean, areas outside domain, or missing inputs) are assigned `-1` and excluded from all calculations and summaries.
+Configuration validation requires `watch < alert < critical`, with every threshold between 0 and 1. Cells with no data (ocean, areas outside domain, or missing inputs) are assigned `-1`; their continuous `stress_index` is `NaN`, and they are excluded from calculations and summaries.
 
 ### 3.4 Valid Cell Masking
 
 The valid cell mask is built once during data loading (`prepare_data()`): a cell is valid if and only if all three inputs — soil moisture, temperature, and VPD — contain finite values. When `--boundary-gpkg` is used, the valid mask is further restricted to cells whose centres fall inside the supplied polygon. Ocean and missing-data cells are excluded at this stage and carry a sentinel value of `-1` through all outputs. No imputation is performed.
 
-### 3.5 Scientific Rationale for Thresholds and Weights
+### 3.5 Configuration Invariants
+
+`ClassifierConfig` rejects ambiguous or physically invalid runtime configuration before data loading:
+
+- `dryness_weight + vpd_weight + temperature_weight` must equal 1.0
+- `watch_risk_threshold < alert_risk_threshold < critical_risk_threshold`
+- `start_date <= end_date` when both dates are supplied
+- `min_lat < max_lat` and `min_lon < max_lon`
+- moisture, temperature, and VPD normalisation references must be greater than zero
+
+The selected model parameters are persisted in the summary JSON as `model_metadata` and in NetCDF as `risk_model_json`. Bulletin rendering reads this metadata so its methodology text follows the actual run rather than assuming defaults.
+
+### 3.6 Scientific Rationale for Thresholds and Weights
 
 #### Dryness reference point — 0.50 (climatological median)
 
@@ -163,11 +177,11 @@ Stomatal closure in most broadacre crops begins around 1.5 kPa; virtually all WA
 | VPD | 0.25 | Drives transpiration demand and accelerates soil water depletion. High VPD independently reduces water-use efficiency and can cause stress even with moderate soil moisture. Its contribution amplifies soil moisture stress rather than substituting for it. |
 | Temperature | 0.15 | Direct heat damage occurs at extremes but co-varies strongly with VPD (hot days are typically dry). A lower weight mitigates double-counting of the atmospheric stress signal already partially captured by the VPD term. |
 
-These weights are consistent with the agronomic literature and represent expert judgment. They have **not been formally optimised against observed yield or pasture-loss data** and should be treated as calibration parameters subject to revision when labelled outcome data become available (see B20 in `docs/backlog.md`).
+These default weights are consistent with the agronomic literature and represent expert judgment. They have **not been formally optimised against observed yield or pasture-loss data** and should be treated as validated configuration parameters subject to revision when labelled outcome data become available (see B20 in `docs/backlog.md`).
 
-#### Stress index thresholds — 0.35 / 0.60 / 0.85
+#### Default stress index thresholds — 0.35 / 0.60 / 0.85
 
-The thresholds are set so that atmospheric stress alone (VPD + temperature, with no soil moisture deficit) cannot drive cells above the Watch category, ensuring soil water depletion is always a prerequisite for higher-severity classification:
+The configurable defaults are set so that atmospheric stress alone (VPD + temperature, with no soil moisture deficit) cannot drive cells above the Watch category, ensuring soil water depletion is always a prerequisite for higher-severity classification:
 
 | Threshold | What is required to reach it |
 |---|---|
@@ -192,11 +206,11 @@ Counts and proportions of cells in each risk category, plus time window metadata
 Two figures are produced:
 
 - **Risk map figure:** Side-by-side categorical risk map (colour-coded by level) and continuous stress index map (0–1 gradient). The stress index panel shows the intensity of conditions within each category.
-- **Diagnostic figure:** Histogram of the stress index distribution and a soil moisture vs VPD scatter plot coloured by stress index, for quality-checking the run.
+- **Diagnostic figure:** Histogram of soil-moisture percentile rank and a soil moisture vs VPD scatter plot coloured by stress index, for quality-checking the run.
 
 ### 4.4 Bulletin (Markdown)
 
-A formatted Markdown bulletin for policy staff, rendered from the summary JSON via `scripts/render_bulletin.py` against `templates/bulletin_template.j2`. Includes key finding, risk table, map reference, methodology note, and caveats. See Section 5.2.
+A formatted Markdown bulletin for policy staff, rendered from the summary JSON via `scripts/render_bulletin.py` against `templates/bulletin_template.j2`. Includes key finding, risk table, map reference, model-aware methodology note, and caveats. See Section 5.2.
 
 ---
 
@@ -242,7 +256,6 @@ uv run python scripts/render_bulletin.py \
 
 | Item | Description | Priority |
 |---|---|---|
-| Stress index weights not configurable | The 0.60/0.25/0.15 weights are hardcoded in `risk.py`. Adjustment requires modifying source code. Exposure via `ClassifierConfig` tracked as B10. | Medium |
 | Weights not empirically validated | Weights and thresholds are expert-judgment calibrations. Formal optimisation against yield/pasture-loss data is tracked as B20. | Future |
 | No temporal trend analysis | Each run produces a snapshot. Multi-period trend comparison (drying trajectories, persistent hotspots) is not yet implemented. | Future |
 | No spatial aggregation | Risk map is cell-level only. Aggregation to NRM regions, catchments, or farm units would support decision-support use. | Future |
@@ -262,6 +275,6 @@ uv run python scripts/render_bulletin.py \
 | `risk_map` | int8 array (lat, lon) | −1 = no data; 0 = Low; 1 = Watch; 2 = Alert; 3 = Critical |
 | `stress_index` | float array (lat, lon) | Continuous 0–1; NaN for invalid cells |
 | NetCDF | `.nc` | Risk map with coordinates and metadata |
-| JSON | `.json` | Cell counts, percentages, time window |
+| JSON | `.json` | Cell counts, percentages, time window, and risk-model parameters |
 | PNG | `.png` | Risk map + stress index + diagnostics |
 | Bulletin | `.md` | Policy-ready Markdown bulletin |
