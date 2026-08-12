@@ -11,8 +11,6 @@ LOGGER = logging.getLogger(__name__)
 
 
 def run_pipeline(
-    visualize: bool = False,
-    output_path: str = "classification_map.html",
     output_dir: str | None = None,
     risk_output_prefix: str | None = None,
     risk_plot_path: str | None = None,
@@ -21,7 +19,6 @@ def run_pipeline(
     start_date: str | None = None,
     end_date: str | None = None,
     silo_variables: list[str] | None = None,
-    allow_legacy_sm: bool | None = None,
     silo_cache_dir: str | None = None,
     silo_cache_max_mb: int | None = None,
     use_silo_cog_loader: bool | None = None,
@@ -53,8 +50,6 @@ def run_pipeline(
         config_kwargs["end_date"] = end_date
     if silo_variables:
         config_kwargs["silo_variables"] = silo_variables
-    if allow_legacy_sm is not None:
-        config_kwargs["allow_legacy_sm"] = allow_legacy_sm
     if silo_cache_dir is not None:
         config_kwargs["silo_cache_dir"] = silo_cache_dir
     if silo_cache_max_mb is not None:
@@ -144,16 +139,6 @@ def run_pipeline(
         )
         LOGGER.info("Diagnostic plots exported to %s", diag_path)
 
-    if visualize:
-        from src.soil_moisture_trio.visualize import create_interactive_map
-        create_interactive_map(
-            risk_map=risk_map,
-            lats=pipeline.data_grids["lats"],
-            lons=pipeline.data_grids["lons"],
-            risk_summary=risk_summary,
-            output_path=output_path,
-        )
-
 
 # ----------------------------------------------------------------------
 # Entry point
@@ -161,8 +146,6 @@ def run_pipeline(
 if __name__ == "__main__":
     logging.basicConfig(level=logging.INFO, format="%(levelname)s %(name)s: %(message)s")
     parser = argparse.ArgumentParser(description="Run the Soil Moisture Trio pipeline.")
-    parser.add_argument("--visualize", action="store_true", help="Generate the Folium map output.")
-    parser.add_argument("--output-path", default="classification_map.html", help="HTML output path.")
     parser.add_argument("--output-dir", default=None, help="Directory for all run outputs. When set, --risk-output-prefix and --risk-plot-path are treated as basenames within this directory.")
     parser.add_argument("--risk-output-prefix", default=None, help="Prefix (or basename with --output-dir) for NetCDF + JSON outputs.")
     parser.add_argument("--risk-plot-path", default=None, help="Path (or basename with --output-dir) for risk PNG figure.")
@@ -170,11 +153,6 @@ if __name__ == "__main__":
     parser.add_argument("--start-date", type=str, default=None)
     parser.add_argument("--end-date", type=str, default=None)
     parser.add_argument("--silo-variable", dest="silo_variables", action="append", default=None)
-    parser.add_argument(
-        "--allow-legacy-sm",
-        action="store_true",
-        help="Allow fallback to the legacy AWRAL raw-values soil-moisture product if the decile product cannot be loaded.",
-    )
     parser.add_argument("--silo-cache-dir", default=None)
     parser.add_argument("--silo-cache-max-mb", type=int, default=None)
     parser.add_argument("--silo-overview-level", type=int, default=None)
@@ -190,8 +168,6 @@ if __name__ == "__main__":
     args = parser.parse_args()
 
     run_pipeline(
-        visualize=args.visualize,
-        output_path=args.output_path,
         output_dir=args.output_dir,
         risk_output_prefix=args.risk_output_prefix,
         risk_plot_path=args.risk_plot_path,
@@ -200,7 +176,6 @@ if __name__ == "__main__":
         start_date=args.start_date,
         end_date=args.end_date,
         silo_variables=args.silo_variables,
-        allow_legacy_sm=args.allow_legacy_sm,
         silo_cache_dir=args.silo_cache_dir,
         silo_cache_max_mb=args.silo_cache_max_mb,
         use_silo_cog_loader=args.use_silo_cog_loader,

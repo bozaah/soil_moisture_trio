@@ -60,4 +60,4 @@ These percentile bands help interpret the AWRA-L input but do not directly assig
 - Stress weights are not yet exposed through `ClassifierConfig`.
 - Risk-band thresholds are fixed in `risk.py` rather than configured.
 - Seasonal calibration remains backlog work.
-- Legacy raw-values soil moisture is compatibility-only and is not scientifically equivalent to percentile-rank operation.
+- AWRA-L percentile-rank soil moisture is required; raw soil-moisture products are not accepted.

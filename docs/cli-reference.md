@@ -9,8 +9,6 @@ Run with: `uv run python main.py [OPTIONS]`
 | `--year INT` | 2024 | Data year for AWRAL and SILO |
 | `--start-date DATE` | first timestep | Start of averaging window (YYYY-MM-DD) |
 | `--end-date DATE` | start-date | End of averaging window (YYYY-MM-DD) |
-| `--visualize` | off | Generate Folium HTML map |
-| `--output-path PATH` | `classification_map.html` | Folium HTML output path |
 
 ## Boundary / Bounding Box
 
@@ -35,7 +33,6 @@ Run with: `uv run python main.py [OPTIONS]`
 | Flag | Default | Description |
 |---|---|---|
 | `--silo-variable NAME` | `max_temp`, `vp_deficit` | Repeatable; SILO variable names |
-| `--allow-legacy-sm` | off | Allow fallback to the legacy raw-values AWRAL soil-moisture product if the decile product cannot be loaded |
 | `--use-silo-cog-loader` | auto/default on | Explicitly prefer the `weather_tools` GeoTIFF path |
 | `--no-silo-cog-loader` | — | Fall back to NetCDF downloads |
 | `--silo-cache-dir PATH` | `~/.cache/soil_moisture_trio/silo` | Cache root for GeoTIFF downloads; bbox-specific subdirectories are created automatically |

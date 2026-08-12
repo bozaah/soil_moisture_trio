@@ -219,53 +219,18 @@ def test_save_risk_plot_creates_png(tmp_path):
     assert path.stat().st_size > 0
 
 
-def test_load_soil_moisture_data_raises_when_decile_fails_without_opt_in(monkeypatch):
-    pipeline = DryWetClassifierPipeline(ClassifierConfig(allow_legacy_sm=False))
+def test_load_soil_moisture_data_raises_clear_error_when_decile_fails(monkeypatch):
+    pipeline = DryWetClassifierPipeline(ClassifierConfig())
 
     def fake_load_real_netcdf(file_path, var_name):
         raise OSError("decile unavailable")
 
     monkeypatch.setattr(pipeline, "_load_real_netcdf", fake_load_real_netcdf)
 
-    with pytest.raises(RuntimeError, match="allow-legacy-sm"):
+    with pytest.raises(RuntimeError, match="requires the AWRAL 'sm_pct' percentile-rank product"):
         pipeline._load_soil_moisture_data(
             {
                 "pct_url": "decile-url",
                 "pct_var": "sm_pct",
-                "legacy_url": "legacy-url",
-                "legacy_var": "sm_pct",
             }
         )
-
-
-def test_load_soil_moisture_data_falls_back_to_legacy_when_opted_in(monkeypatch):
-    pipeline = DryWetClassifierPipeline(ClassifierConfig(allow_legacy_sm=True))
-    calls = []
-
-    def fake_load_real_netcdf(file_path, var_name):
-        calls.append((file_path, var_name))
-        if file_path == "decile-url":
-            raise OSError("decile unavailable")
-        return np.array([[10.0, 20.0], [30.0, 40.0]], dtype=np.float32), {"time_start": "2025-01-01"}
-
-    def fake_load_spatial_coords(file_path):
-        assert file_path == "legacy-url"
-        return np.array([-35.0, -34.0]), np.array([115.0, 116.0])
-
-    monkeypatch.setattr(pipeline, "_load_real_netcdf", fake_load_real_netcdf)
-    monkeypatch.setattr(pipeline, "_load_spatial_coords", fake_load_spatial_coords)
-
-    soil, meta, lats, lons = pipeline._load_soil_moisture_data(
-        {
-            "pct_url": "decile-url",
-            "pct_var": "sm_pct",
-            "legacy_url": "legacy-url",
-            "legacy_var": "sm_pct",
-        }
-    )
-
-    assert calls == [("decile-url", "sm_pct"), ("legacy-url", "sm_pct")]
-    np.testing.assert_allclose(soil, np.array([[0.1, 0.2], [0.3, 0.4]], dtype=float))
-    assert meta == {"time_start": "2025-01-01"}
-    np.testing.assert_allclose(lats, np.array([-35.0, -34.0]))
-    np.testing.assert_allclose(lons, np.array([115.0, 116.0]))

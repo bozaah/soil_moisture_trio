@@ -1,10 +1,10 @@
 # Soil Moisture Trio — Agent Context
 
-Rule-based drought risk monitoring pipeline. Classifies Australian grid cells into Low / Watch / Alert / Critical using AWRA-L `sm_pct` percentile rank (NCI THREDDS), SILO maximum temperature, and SILO VPD. Outputs: NetCDF risk map, summary JSON, PNG figures, Markdown bulletin, optional Folium HTML.
+Rule-based drought risk monitoring pipeline. Classifies Australian grid cells into Low / Watch / Alert / Critical using AWRA-L `sm_pct` percentile rank (NCI THREDDS), SILO maximum temperature, and SILO VPD. Outputs: NetCDF risk map, summary JSON, PNG figures, and Markdown bulletin.
 
 ## Tech Stack
 
-Python · xarray · rioxarray · pydantic · jinja2 · folium · scipy · `uv`
+Python · xarray · rioxarray · pydantic · jinja2 · scipy · `uv`
 
 ## Key Files
 
@@ -16,7 +16,6 @@ Python · xarray · rioxarray · pydantic · jinja2 · folium · scipy · `uv`
 | `src/.../data_sources.py` | `WeatherToolsSiloLoader` — SILO COG/NetCDF + persistent bbox-keyed cache |
 | `src/.../risk.py` | Composite stress index, `RiskLevel` enum, NetCDF/JSON output |
 | `src/.../plot.py` | PNG outputs (risk map + diagnostics) |
-| `src/.../visualize.py` | Folium HTML map |
 | `templates/bulletin_template.j2` | Jinja2 Markdown bulletin template |
 | `scripts/render_bulletin.py` | CLI: `--summary-json`, `--map-png`, `--output` |
 | `tests/` | pytest suite — mock `_load_all_real_data` for speed |
@@ -95,6 +94,7 @@ All outputs (`.nc`, `_summary.json`, risk PNG, `stress_diagnostics.png`) land in
 - [sessions/2026-03-26-sprint10-live-verification.md](sessions/2026-03-26-sprint10-live-verification.md) — Sprint 10 verification pass 3: lint baseline restored and fresh live SWAZ boundary run captured
 - [sessions/2026-05-11_ssa26-abstract-submission.md](sessions/2026-05-11_ssa26-abstract-submission.md) — SSA 2026 abstract submission and planned soil-property stratification direction
 - [sessions/2026-08-12-sprint11-reproducibility-cleanup.md](sessions/2026-08-12-sprint11-reproducibility-cleanup.md) — Sprint 11: reproducible lock/tests/CI cleanup and removal of the unused binary classification surface
+- [sessions/2026-08-12-sprint12-runtime-surface-trim.md](sessions/2026-08-12-sprint12-runtime-surface-trim.md) — Sprint 12: removed raw soil-moisture compatibility and Folium HTML surfaces
 
 ## First Principles
 

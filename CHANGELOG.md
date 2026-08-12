@@ -4,6 +4,31 @@ All notable changes per sprint/iteration. Format: `## [sprint] YYYY-MM-DD — Ti
 
 ---
 
+## [Sprint 12] 2026-08-12 — Runtime surface trim
+
+### Changed
+
+- `src/soil_moisture_trio/pipeline.py` / `config.py` — removed the scientifically non-equivalent raw soil-moisture fallback; AWRA-L `sm_pct` percentile ranks are now mandatory and source failures raise a clear `RuntimeError`
+- `main.py` — removed `--allow-legacy-sm`, `--visualize`, `--output-path`, and their programmatic arguments; the supported output surface is NetCDF, JSON, PNG diagnostics, and Markdown bulletin
+- `scripts/moisture_ranges_diagnostic.py` — switched the manual network diagnostic from the retired raw-values product to the required decile product and added 0–1 range validation
+- active README and reference docs — removed compatibility and Folium instructions while retaining the SILO COG-to-NetCDF fallback
+
+### Removed
+
+- `src/soil_moisture_trio/visualize.py` and `tests/test_visualize.py`
+- Folium and its transitive `branca` / `xyzservices` packages from the locked environment
+- unused `RISK_SUMMARY_ORDER` constant
+- legacy fallback normalization, config, CLI wiring, and fallback-specific test
+
+### Verified
+
+- `uv sync --frozen --group dev` → clean locked dependency sync
+- `uv run pytest -q` → `14 passed`
+- `uv run ruff check` → `All checks passed!`
+- CLI smoke test confirms removed flags are absent and SILO fallback flags remain present
+
+---
+
 ## [Sprint 11] 2026-08-12 — Reproducibility cleanup and single risk surface
 
 ### Changed

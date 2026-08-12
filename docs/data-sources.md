@@ -14,19 +14,9 @@ The pipeline's primary soil-moisture input is the AWRA-L v7 `sm_pct` decile prod
 
 `_normalize_sm_pct_decile()` retains a defensive `max > 1.1` check and converts to `0–1` if needed, but the expected operational behavior is already `0–1`.
 
-### Decile vs Legacy Raw-Values Product
+### Required Percentile-Rank Product
 
-The decile product is the default and scientifically preferred path. If that load fails, the pipeline raises a `RuntimeError` unless the operator explicitly enables:
-
-```bash
---allow-legacy-sm
-```
-
-That flag allows fallback to:
-
-`https://thredds.nci.org.au/thredds/dodsC/iu04/australian-water-outlook/historical/v1/AWRALv7/processed/values/day/sm_pct_{YEAR}.nc`
-
-Important caveat: the legacy raw-values product is compatibility-only. The current thresholds and stress-index interpretation are calibrated for percentile-rank inputs, not raw volumetric values.
+The decile product is mandatory because the risk model is calibrated for spatially and seasonally normalised percentile ranks. If the product cannot be loaded, the pipeline raises a clear `RuntimeError` and does not substitute a raw soil-moisture product with different scientific meaning.
 
 ### Calibration Baseline
 

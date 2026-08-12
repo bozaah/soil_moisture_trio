@@ -1,6 +1,6 @@
 # Soil Moisture Trio — Technical Report
 
-**Version:** Sprint 11 | **Date:** 2026-08-12
+**Version:** Sprint 12 | **Date:** 2026-08-12
 **Status:** Operational — decile-calibrated, composite stress index risk classification
 
 ---
@@ -197,10 +197,6 @@ Two figures are produced:
 ### 4.4 Bulletin (Markdown)
 
 A formatted Markdown bulletin for policy staff, rendered from the summary JSON via `scripts/render_bulletin.py` against `templates/bulletin_template.j2`. Includes key finding, risk table, map reference, methodology note, and caveats. See Section 5.2.
-
-### 4.5 Interactive Map (optional)
-
-A Folium HTML map with clickable cells showing risk level and coordinates, for field-scale exploration.
 
 ---
 

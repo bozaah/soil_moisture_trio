@@ -10,7 +10,6 @@ A rule-based drought risk monitoring pipeline for the Australian landscape. Comb
 | Summary | JSON | Cell counts and percentages per risk band |
 | Risk plot | PNG | Two-panel: categorical map + continuous stress index |
 | Bulletin | Markdown | Policy-ready bulletin rendered from summary JSON |
-| Interactive map | HTML | Optional Folium map (pass `--visualize`) |
 
 ## Requirements
 
@@ -58,7 +57,7 @@ See [docs/cli-reference.md](docs/cli-reference.md) for all flags.
 1. **Load** — AWRAL `sm_pct` percentile rank (0–1) + SILO `max_temp` and `vp_deficit`, clipped to bounds and averaged over the requested time window
 2. **Risk** — composite stress index: 60% soil moisture deficit (departure below median) + 25% VPD + 15% temperature, normalised against agronomic critical thresholds
 3. **Classify** — stress index thresholds assign each cell to Low / Watch / Alert / Critical; ocean and missing-data cells are masked (`-1`)
-4. **Output** — NetCDF risk map, JSON summary, PNG figure, optional bulletin and Folium map
+4. **Output** — NetCDF risk map, JSON summary, PNG figures, and optional bulletin
 
 Full pipeline detail: [docs/architecture.md](docs/architecture.md) | Methodology: [docs/technical_report.md](docs/technical_report.md)
 
@@ -71,7 +70,6 @@ src/soil_moisture_trio/
   data_sources.py  WeatherToolsSiloLoader — SILO COG fetcher + persistent cache
   risk.py          Composite stress index, RiskLevel enum, NetCDF/JSON output
   plot.py          PNG outputs
-  visualize.py     Folium HTML map
 templates/         Jinja2 output templates
 scripts/           Standalone utilities (bulletin renderer)
 tests/             pytest suite (mocks network I/O)

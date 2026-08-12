@@ -31,10 +31,6 @@ class ClassifierConfig(BaseModel):
         description="SILO variables to request via weather_tools",
     )
     use_silo_cog_loader: bool = Field(True, description="Fetch SILO data via weather_tools COG loader")
-    allow_legacy_sm: bool = Field(
-        False,
-        description="Allow fallback to the legacy AWRAL raw-values soil-moisture product when the decile product is unavailable.",
-    )
     silo_cache_dir: Path = Field(
         default_factory=lambda: Path.home() / ".cache" / "soil_moisture_trio" / "silo",
         description="Directory for persisting SILO GeoTIFF downloads. Created automatically if absent.",

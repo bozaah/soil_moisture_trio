@@ -18,7 +18,7 @@ main.py
        -> compute continuous stress index
        -> assign Low / Watch / Alert / Critical categories
   -> write NetCDF + summary JSON
-  -> optionally render PNG, diagnostics PNG, and Folium HTML
+  -> optionally render risk and diagnostics PNGs
 ```
 
 ## Module Responsibilities
@@ -31,7 +31,6 @@ main.py
 | `src/soil_moisture_trio/data_sources.py` | `WeatherToolsSiloLoader` wrapper, bbox-scoped cache directories, regridding |
 | `src/soil_moisture_trio/risk.py` | Stress index calculation, `RiskLevel`, NetCDF/JSON persistence |
 | `src/soil_moisture_trio/plot.py` | Risk PNG and diagnostics PNG generation |
-| `src/soil_moisture_trio/visualize.py` | Optional Folium HTML map |
 | `scripts/render_bulletin.py` | Markdown bulletin rendering from summary JSON |
 
 ## Data Contract
@@ -40,7 +39,7 @@ All analysis grids are 2D `(lat, lon)` arrays after time averaging and spatial a
 
 | Variable | Source | Units | Notes |
 |---|---|---|---|
-| `soil_moisture` | AWRAL `sm_pct` decile product | percentile rank 0–1 | Normal path is decile-only; legacy raw-values fallback is opt-in via `--allow-legacy-sm` |
+| `soil_moisture` | AWRAL `sm_pct` decile product | percentile rank 0–1 | Required input; the pipeline fails if the percentile-rank product is unavailable |
 | `temperature` | SILO `max_temp` | °C | Time-averaged over selected window |
 | `vpd` | SILO `vp_deficit` | hPa | Time-averaged over selected window |
 | `lats` | AWRAL coordinates | degrees north | Returned ascending |
@@ -90,7 +89,6 @@ Risk bands:
 | `{prefix}_summary.json` | JSON | Per-category counts, percentages, labels, and time metadata |
 | `risk PNG` | PNG | Two-panel categorical map + continuous stress index |
 | `stress_diagnostics.png` | PNG | Soil-moisture histogram and soil-moisture vs VPD scatter |
-| `classification_map.html` or custom path | HTML | Optional Folium map when `--visualize` is used |
 | bulletin `.md` | Markdown | Rendered separately via `scripts/render_bulletin.py` |
 
 ## Operational Notes

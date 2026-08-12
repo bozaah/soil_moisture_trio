@@ -181,8 +181,6 @@ class DryWetClassifierPipeline:
             'soil_moisture': {
                 'pct_url': f'https://thredds.nci.org.au/thredds/dodsC/iu04/australian-water-outlook/historical/v1/AWRALv7/processed/deciles/day/sm_pct_{self.config.year}.nc',
                 'pct_var': 'sm_pct',
-                'legacy_url': f'https://thredds.nci.org.au/thredds/dodsC/iu04/australian-water-outlook/historical/v1/AWRALv7/processed/values/day/sm_pct_{self.config.year}.nc',
-                'legacy_var': 'sm_pct',
             },
             'temperature': {
                 'url': f'https://s3-ap-southeast-2.amazonaws.com/silo-open-data/Official/annual/max_temp/{self.config.year}.max_temp.nc',
@@ -254,25 +252,10 @@ class DryWetClassifierPipeline:
             lats, lons = self._load_spatial_coords(pct_url)
             return soil_moisture_data, soil_meta, lats, lons
         except Exception as exc:
-            if not self.config.allow_legacy_sm:
-                raise RuntimeError(
-                    f"Failed to load soil moisture decile product '{pct_url}': {exc}.\n"
-                    "This pipeline requires the AWRAL 'sm_pct' decile product (percentile rank 0-1). "
-                    "Re-run with --allow-legacy-sm only if you explicitly accept the raw-values fallback."
-                ) from exc
-
-            legacy_url = soil_source['legacy_url']
-            legacy_var = soil_source['legacy_var']
-            LOGGER.warning(
-                "Failed to load decile sm_pct product (%s). Falling back to legacy raw-values product %s. "
-                "This compatibility mode is not scientifically equivalent to percentile-rank operation.",
-                exc,
-                legacy_url,
-            )
-            legacy_data, legacy_meta = self._load_real_netcdf(legacy_url, legacy_var)
-            legacy_data = self._normalize_legacy_sm(legacy_data)
-            lats, lons = self._load_spatial_coords(legacy_url)
-            return legacy_data, legacy_meta, lats, lons
+            raise RuntimeError(
+                f"Failed to load required soil moisture decile product '{pct_url}': {exc}. "
+                "The pipeline requires the AWRAL 'sm_pct' percentile-rank product on a 0-1 scale."
+            ) from exc
 
     @staticmethod
     def _load_spatial_coords(file_path: str) -> tuple[np.ndarray, np.ndarray]:
@@ -299,27 +282,6 @@ class DryWetClassifierPipeline:
             )
         else:
             LOGGER.info("sm_pct decile product confirmed 0-1 scale (max=%.3f).", original_max)
-        return soil_moisture_data
-
-    def _normalize_legacy_sm(self, soil_moisture_data: np.ndarray) -> np.ndarray:
-        soil_moisture_data = np.asarray(soil_moisture_data, dtype=float)
-        original_max = self._safe_nanmax(soil_moisture_data)
-        if np.isnan(original_max):
-            LOGGER.warning("Loaded legacy soil moisture product contains no finite values.")
-            return soil_moisture_data
-
-        if original_max > 1.1:
-            soil_moisture_data = soil_moisture_data / 100.0
-            LOGGER.warning(
-                "Legacy soil moisture product appears to be in percent scale (max=%.3f); converted to 0-1.",
-                original_max,
-            )
-        else:
-            LOGGER.warning(
-                "Legacy soil moisture product loaded in 0-1 scale (max=%.3f). "
-                "Risk outputs remain compatibility-only because thresholds are calibrated for decile ranks.",
-                original_max,
-            )
         return soil_moisture_data
 
     def _load_silo_via_weather_tools(

@@ -26,8 +26,6 @@ RISK_LABELS = {
     RiskLevel.CRITICAL: "Critical",
 }
 
-RISK_SUMMARY_ORDER = ("critical", "alert", "watch", "low")
-
 RISK_COLORS = {
     RiskLevel.LOW: "#2b83ba",     # Blue - Wet/Low Risk
     RiskLevel.WATCH: "#c7e9b4",   # Green - Early drying
@@ -208,7 +206,6 @@ __all__ = [
     "RiskLevel",
     "RISK_LABELS",
     "RISK_COLORS",
-    "RISK_SUMMARY_ORDER",
     "assess_risk_levels",
     "save_risk_outputs",
 ]

@@ -18,7 +18,7 @@ Items are grouped by theme. See `CHANGELOG.md` for what was done each sprint.
 
 - ~~**B5**~~ **RESOLVED** — Runtime paths now use `logging` rather than `print()` in `main.py`, `pipeline.py`, `data_sources.py`, and bulletin rendering.
 
-- ~~**B7**~~ **RESOLVED** — `--allow-legacy-sm` is now implemented as an explicit opt-in fallback to the legacy raw-values AWRAL product, with warnings in both code and docs.
+- ~~**B7**~~ **RETIRED (Sprint 12)** — The temporary `--allow-legacy-sm` compatibility path was removed. The pipeline now requires the scientifically calibrated AWRA-L percentile-rank product and fails clearly when it is unavailable.
 
 - ~~**B8**~~ **RESOLVED (Sprint 11)** — `_load_real_netcdf` now selects raster time windows positionally with `isel(band=slice(start_idx, stop_idx))`, avoiding dependence on non-sequential band labels.
 

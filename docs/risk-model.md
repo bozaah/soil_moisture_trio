@@ -71,4 +71,4 @@ Excluded cells remain `-1` in the categorical map and `NaN` in the continuous st
 
 - Stress weights are not yet configurable through `ClassifierConfig`.
 - The continuous stress thresholds are fixed year-round; seasonal calibration remains backlog work.
-- Legacy soil-moisture fallback mode is available, but the risk interpretation is calibrated for the decile product, not the raw-values product.
+- The model requires AWRA-L percentile ranks and has no raw soil-moisture compatibility path.

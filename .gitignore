@@ -11,7 +11,6 @@ __pycache__/
 
 # Generated products
 outputs/
-/*.html
 .DS_Store
 
 # Large or locally supplied data
