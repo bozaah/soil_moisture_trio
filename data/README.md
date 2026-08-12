@@ -25,3 +25,19 @@ data/awral_decile_sm_pct_WA_monthly.nc
 This approximately 793 MB file is a local WA subset of the AWRA-L v7 monthly soil-moisture percentile-rank product covering 1911–2026. It is not needed for routine operational runs and is not stored in Git.
 
 See [`../docs/data-sources.md`](../docs/data-sources.md) for source details.
+
+## Planned static SLGA-derived layers
+
+Phase 5 will build static, harmonised SLGA AWC v2 and Depth of Soil (DES) v2 layers once and reuse them across operational drought runs. The proposed local layout is:
+
+```text
+data/processed/slga_awral/
+  slga_awc_des_awral_wa_0p05deg_v1.nc
+  slga_awc_des_awral_wa_0p05deg_v1.manifest.json
+```
+
+The compressed NetCDF will contain DES-capped modelled AWC storage capacity, lower/upper uncertainty scenarios, mapped soil depth, source coverage, and mapped within-cell dispersion on a canonical full-WA AWRA-L grid derived from authoritative coordinates. Operational SWAZ and future regional runs select exact coordinate subsets; boundaries do not trigger re-harmonisation. It is a static soil-context artifact and must not contain run-specific risk output.
+
+Large derived files remain excluded from Git. Reproducibility requires an explicit build command, pinned full SLGA product identifiers, source and output checksums, complete transformation metadata, and a tracked product/build contract. Operational runs must fail clearly when the approved artifact is absent or incompatible; they must not silently download, rebuild, or substitute a newer SLGA product.
+
+The filename/version above is provisional until the B25b output schema is implemented.
