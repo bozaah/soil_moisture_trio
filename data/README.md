@@ -26,9 +26,9 @@ This approximately 793 MB file is a local WA subset of the AWRA-L v7 monthly soi
 
 See [`../docs/data-sources.md`](../docs/data-sources.md) for source details.
 
-## Planned static SLGA-derived layers
+## Static SLGA-derived layers — Phase 5 prototype
 
-Phase 5 will build static, harmonised SLGA AWC v2 and Depth of Soil (DES) v2 layers once and reuse them across operational drought runs. The proposed local layout is:
+Phase 5 has implemented the bounded retrieval, integration, harmonisation, and provisional artifact I/O foundations for static SLGA AWC v2 and Depth of Soil (DES) v2 layers. No approved full-WA artifact exists yet, and the operational drought pipeline does not currently load soil context. The planned production layout is:
 
 ```text
 data/processed/slga_awral/
@@ -40,4 +40,4 @@ The compressed NetCDF will contain DES-capped modelled AWC storage capacity, low
 
 Large derived files remain excluded from Git. The live-verified source catalogue is tracked at [`../manifests/slga_awc_des_sources_v1.json`](../manifests/slga_awc_des_sources_v1.json); it pins AWC EV/05/95 and DES EV/10/90 full identifiers, URLs, profiles, published STAC multihashes, and source sizes. The prototype transformation and output contract is tracked at [`../docs/slga-builder-contract.md`](../docs/slga-builder-contract.md). Reproducibility also requires an explicit build command, output checksums, and complete transformation metadata. Operational runs must fail clearly when the approved artifact is absent or incompatible; they must not silently download, rebuild, or substitute a newer SLGA product.
 
-The filename/version above is provisional until the B25b output schema is implemented.
+The artifact schema and filename are implemented provisionally for testing but remain unapproved until larger coastal/nodata profiling, schema and DES-presentation review, and artifact version promotion are complete.

@@ -4,6 +4,20 @@ All notable changes per sprint/iteration. Format: `## [sprint] YYYY-MM-DD — Ti
 
 ---
 
+## [Phase 5] 2026-08-12 — B25b documentation synchronization
+
+### Changed
+
+- active README, architecture, data-source, CLI, technical-report, local-data, and SLGA evidence documentation now distinguish the implemented B25b prototype foundations from the absent production full-WA artifact and absent operational soil summaries
+- `docs/slga-evidence-review.md` now records the implemented catalogue, COG retrieval, integration, harmonisation, tiling, provisional artifact I/O, tests, and 3×3 authenticated pilot instead of describing them as design-only future work
+- remaining gates are aligned across active docs: larger coastal/nodata and transfer/cache profiling, full-WA performance review, final schema/DES presentation approval, artifact distribution/version promotion, grouped-summary reconciliation, and soil-science review
+
+### Verified
+
+- documentation-only diff; no source, configuration, tests, manifests, risk calculations, thresholds, masks, summaries, or generated products changed
+- fresh pre-edit baseline remained `77 passed, 1 skipped`; `uv lock --check` and `uv run ruff check .` passed
+- repository-wide `uv run ruff format --check .` still reports 10 pre-existing non-SLGA files that would be reformatted; this pass does not modify them or claim a clean formatting baseline
+
 ## [Phase 5] 2026-08-12 — Canonical AWRA-L grid and deterministic artifact foundations
 
 ### Added

@@ -1,7 +1,7 @@
 # Soil Moisture Trio — Technical Report
 
-**Version:** Sprint 13 | **Date:** 2026-08-12
-**Status:** Operational — decile-calibrated, composite stress index risk classification
+**Version:** Sprint 13 risk methodology with Phase 5 context update | **Date:** 2026-08-12
+**Status:** Operational risk classification; Phase 5 soil context remains non-operational
 
 ---
 
@@ -48,6 +48,12 @@ A WA monthly decile subset covering the full historical record has been download
 - **Coverage:** Western Australia (lat −35° to −13°, lon 112° to 129°)
 - **Dimensions:** 1,382 months × 441 latitude × 341 longitude cells (~831 MB)
 - **Period:** January 1911 – February 2026
+
+### 1.4 Phase 5 Static Soil Context — Not Yet Operational
+
+Phase 5 is developing static interpretive context from SLGA AWC v2 and Depth of Soil v2. The implemented prototype validates pinned sources, computes DES-capped modelled AWC storage capacity over a maximum nominal 0–100 cm profile, and harmonises model predictions to exact AWRA-L cells by fractional overlap in EPSG:3577. A provisional artifact writer and credential-free exact-subset loader are implemented and tested, but no approved full-WA artifact or soil-stratified summary exists.
+
+Soil context will not become an additional risk predictor. It must not change the stress formula, thresholds, `risk_valid_mask`, `risk_map`, `stress_index`, or existing risk summary. Missing soil coverage will be handled by a separate future `soil_summary_mask`. The derived metric is modelled storage-capacity context—not current soil water, paddock-scale observed PAWC, crop-specific effective rooting depth, or independent validation of AWRA-L. See [`slga-evidence-review.md`](slga-evidence-review.md) and [`slga-builder-contract.md`](slga-builder-contract.md).
 
 ---
 
@@ -258,7 +264,8 @@ uv run python scripts/render_bulletin.py \
 |---|---|---|
 | Weights not empirically validated | Weights and thresholds are expert-judgment calibrations. Formal optimisation against yield/pasture-loss data is tracked as B20. | Future |
 | No temporal trend analysis | Each run produces a snapshot. Multi-period trend comparison (drying trajectories, persistent hotspots) is not yet implemented. | Future |
-| No spatial aggregation | Risk map is cell-level only. Aggregation to NRM regions, catchments, or farm units would support decision-support use. | Future |
+| No operational grouped summaries | Risk map is cell-level only. The generic grouped-summary framework and SLGA soil-capacity summaries remain B14a/B25c work. | Phase 5 |
+| Static soil artifact not approved | B25b foundations and a bounded pilot exist, but coastal/nodata and full-WA performance review, schema/DES presentation approval, distribution/version promotion, and the production build remain incomplete. | Phase 5 |
 
 ---
 

@@ -92,6 +92,12 @@ uv run python scripts/render_bulletin.py \
 | `--output PATH` | required | Output Markdown path |
 | `--region TEXT` | `"Western Australia"` | Region label used in the bulletin title and text |
 
+## Phase 5 SLGA Development Utilities
+
+The operational `main.py` CLI has no SLGA flags. It does not retrieve, rebuild, or load soil layers. The bounded authenticated pilot at `scripts/slga_tiled_pilot.py` is development-only, requires an exact locally supplied canonical AWRA-L grid input plus `TERN_API_KEY`, enforces a target-cell safety limit, and writes diagnostic JSON rather than an approved artifact.
+
+Do not use the pilot as an operational build command. Full-WA artifact creation remains gated by larger coastal/nodata profiling, schema and DES-presentation review, and artifact distribution/version approval. See [`slga-builder-contract.md`](slga-builder-contract.md).
+
 ## Environment
 
 - Use `uv run ...` or activate `.venv` — do not install into system Python

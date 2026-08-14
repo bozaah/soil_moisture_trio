@@ -31,11 +31,45 @@ main.py
 | `src/soil_moisture_trio/data_sources.py` | `WeatherToolsSiloLoader` wrapper, bbox-scoped cache directories, regridding |
 | `src/soil_moisture_trio/risk.py` | Stress index calculation, `RiskLevel`, NetCDF/JSON persistence |
 | `src/soil_moisture_trio/plot.py` | Risk PNG and diagnostics PNG generation |
+| `src/soil_moisture_trio/slga/` | Phase 5 static-soil catalogue, COG access, integration, harmonisation, tiling, and provisional artifact I/O; not called by the operational risk pipeline |
 | `scripts/render_bulletin.py` | Markdown bulletin rendering from summary JSON |
+| `scripts/slga_tiled_pilot.py` | Development-only bounded authenticated SLGA pilot; does not write or approve a production artifact |
+
+## Phase 5 Static-Soil Path — Prototype Only
+
+The SLGA work is deliberately separated from `main.py` and the operational risk flow:
+
+```text
+explicit pinned AWRA-L v7 grid file
+  + tracked 18-source SLGA AWC/DES manifest
+  -> strict canonical-grid and source-profile validation
+  -> authenticated bounded full-resolution COG windows
+  -> native-grid DES-capped AWC storage integration
+  -> bounded EPSG:3577 fractional-overlap harmonisation
+  -> SoilArtifactData
+  -> provisional atomic NetCDF + deterministic sidecar writer
+
+future operational soil context:
+approved immutable artifact
+  -> credential-free checksum/schema-verifying loader
+  -> exact contiguous AWRA-L coordinate subset
+  -> separate soil-summary mask and grouped summaries
+```
+
+The build foundations and writer/loader are implemented and deterministically tested, and a live 3×3 SWAZ tiled pilot has exercised all 18 sources. No approved full-WA artifact has been built. Normal drought runs never retrieve, rebuild, or load SLGA data, and no soil grouping or minimum coverage threshold has been approved.
+
+The invariant for later integration is:
+
+```text
+risk_valid_mask   = existing finite-input and boundary mask
+soil_summary_mask = risk_valid_mask AND approved soil-coverage rule
+```
+
+Missing soil data must not alter `risk_map`, `stress_index`, the risk valid mask, or existing risk summaries. See [`slga-builder-contract.md`](slga-builder-contract.md) for the complete provisional contract.
 
 ## Data Contract
 
-All analysis grids are 2D `(lat, lon)` arrays after time averaging and spatial alignment.
+All operational risk-analysis grids are 2D `(lat, lon)` arrays after time averaging and spatial alignment.
 
 | Variable | Source | Units | Notes |
 |---|---|---|---|

@@ -100,6 +100,7 @@ All outputs (`.nc`, `_summary.json`, risk PNG, `stress_diagnostics.png`) land in
 - [sessions/2026-08-12-phase5-slga-manifest-verification.md](sessions/2026-08-12-phase5-slga-manifest-verification.md) — authenticated AWC/DES source verification, corrected DES 10/90 components, and pinned source manifest
 - [sessions/2026-08-12-phase5-slga-b25b-prototype.md](sessions/2026-08-12-phase5-slga-b25b-prototype.md) — deterministic B25b contract, narrow SLGA modules, and verified small-window AWC+DES prototype
 - [sessions/2026-08-12-phase5-slga-canonical-grid-artifact.md](sessions/2026-08-12-phase5-slga-canonical-grid-artifact.md) — pinned AWRA-L v7 grid input, deterministic artifact writer/loader, and tiled invariance proof
+- [sessions/2026-08-12-phase5-slga-doc-sync.md](sessions/2026-08-12-phase5-slga-doc-sync.md) — active documentation synchronized with the implemented B25b prototype and remaining production gates
 
 ## First Principles
 

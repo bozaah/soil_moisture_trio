@@ -61,6 +61,12 @@ See [docs/cli-reference.md](docs/cli-reference.md) for all flags.
 
 Full pipeline detail: [docs/architecture.md](docs/architecture.md) | Methodology: [docs/technical_report.md](docs/technical_report.md)
 
+## Phase 5 Development Status
+
+A separate, non-operational SLGA prototype now supports pinned AWC v2 and Depth of Soil v2 source validation, authenticated bounded COG reads, DES-capped storage-capacity integration, EPSG:3577 fractional-overlap harmonisation, tiled processing, and provisional static-artifact I/O. It has passed deterministic tests and a bounded authenticated 3×3 SWAZ pilot.
+
+No approved full-WA soil artifact or soil-stratified risk summary exists yet. The operational drought pipeline, risk formula, thresholds, valid mask, and outputs remain unchanged and do not fetch or load SLGA data. See [docs/slga-builder-contract.md](docs/slga-builder-contract.md) and [docs/backlog.md](docs/backlog.md).
+
 ## Project Structure
 
 ```text
@@ -70,8 +76,9 @@ src/soil_moisture_trio/
   data_sources.py  WeatherToolsSiloLoader — SILO COG fetcher + persistent cache
   risk.py          Composite stress index, RiskLevel enum, NetCDF/JSON output
   plot.py          PNG outputs
+  slga/            Phase 5 static-soil prototype; separate from risk runtime
 templates/         Jinja2 output templates
-scripts/           Standalone utilities (bulletin renderer)
+scripts/           Standalone utilities (bulletin renderer and bounded SLGA pilot)
 tests/             pytest suite (mocks network I/O)
 docs/              Reference documentation
 sessions/          Per-session notes and working log
@@ -115,6 +122,8 @@ uv run python scripts/moisture_ranges_diagnostic.py
 | [docs/technical_report.md](docs/technical_report.md) | Full methodology: data sources, stress index, thresholds, scientific rationale |
 | [docs/architecture.md](docs/architecture.md) | Pipeline flow, data contract, spatial handling |
 | [docs/data-sources.md](docs/data-sources.md) | AWRAL/SILO sources, units, cache |
-| [docs/cli-reference.md](docs/cli-reference.md) | All CLI flags |
+| [docs/cli-reference.md](docs/cli-reference.md) | All operational CLI flags |
+| [docs/slga-evidence-review.md](docs/slga-evidence-review.md) | Soil-property evidence, product selection, and scientific limits |
+| [docs/slga-builder-contract.md](docs/slga-builder-contract.md) | B25b source, harmonisation, artifact, and failure contract |
 | [docs/backlog.md](docs/backlog.md) | Open issues and next steps |
 | [CHANGELOG.md](CHANGELOG.md) | Per-sprint changes |

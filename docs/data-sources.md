@@ -40,6 +40,19 @@ The explicit Phase 5 SLGA artifact builder uses the completed 2025 Bureau-produc
 
 The remote annual object is not treated as immutable merely because its URL is stable. The builder accepts only an explicitly supplied local file matching the pinned filename, size, full-file SHA-256, schema, and coordinates; it performs no implicit download. The local monthly WA calibration subset is not a substitute. Zenodo record 10689080 corroborates the grid dimensions/coordinates but is a third-party republication without explicit AWRA-L v7 identity in its record metadata, so it is not the canonical source.
 
+## SLGA AWC and Depth of Soil — Phase 5 Static Context
+
+Phase 5 uses an approved, tracked set of static Soil and Landscape Grid of Australia model predictions:
+
+- AWC v2 EV/05/95 at 0–5, 5–15, 15–30, 30–60, and 60–100 cm;
+- Depth of Soil (DES) v2 EV/10/90 at 0–200 cm.
+
+`manifests/slga_awc_des_sources_v1.json` pins all 18 full product identifiers, URLs, profiles, DOI/version metadata, published STAC multihashes, and source sizes. The builder allows only two verified upstream metadata exceptions: AWC STAC omits the COG nodata value `65535`, and DES COG band descriptions retain stale `NAT` identifiers while filenames and STAC IDs use `TRN`.
+
+Authenticated source reads require `TERN_API_KEY`. Credentials are scoped to HTTP Basic/GDAL access and are not persisted or logged. The narrow prototype reads bounded full-resolution COG windows, preserves nodata, integrates a DES-capped nominal 0–100 cm AWC storage-capacity metric, and harmonises it to canonical AWRA-L cells using fractional overlap in EPSG:3577.
+
+These layers are modelled static soil context, not observed paddock PAWC, current water storage, crop-specific effective rooting depth, or independent validation of AWRA-L. AWC and AWRA-L have shared soil-map/pedotransfer ancestry. No approved full-WA artifact exists yet, and operational drought runs do not contact TERN or load SLGA data. See [`slga-evidence-review.md`](slga-evidence-review.md) and [`slga-builder-contract.md`](slga-builder-contract.md).
+
 ## SILO Temperature and VPD
 
 SILO provides the two atmospheric inputs used by the composite stress index.
