@@ -12,6 +12,7 @@ from src.soil_moisture_trio.slga.catalogue import SourceCatalogue
 from src.soil_moisture_trio.slga.cog import (
     AuthenticatedCogReader,
     RasterWindowData,
+    ReaderMetrics,
     assert_common_window_grid,
 )
 from src.soil_moisture_trio.slga.integration import (
@@ -20,11 +21,43 @@ from src.soil_moisture_trio.slga.integration import (
 )
 from src.soil_moisture_trio.slga.tiling import (
     SourceWindow,
+    TileMetrics,
     harmonise_fractional_overlap_tiled,
 )
 
 MIXED_WIDTH_VARIABLE = "mixed_uncertainty_width_mm"
-BUILDER_VARIABLES = (*STORAGE_CASE_COMPONENTS, MIXED_WIDTH_VARIABLE)
+DES_COMPONENTS = ("EV", "10", "90")
+DES_VALUE_VARIABLES = {
+    component: f"depth_of_soil_{component.lower()}_m" for component in DES_COMPONENTS
+}
+DES_SHALLOW_VARIABLES = {
+    component: f"depth_of_soil_{component.lower()}_shallower_than_1m"
+    for component in DES_COMPONENTS
+}
+BUILDER_VARIABLES = (
+    *STORAGE_CASE_COMPONENTS,
+    MIXED_WIDTH_VARIABLE,
+    *DES_VALUE_VARIABLES.values(),
+    *DES_SHALLOW_VARIABLES.values(),
+)
+READER_COUNTER_FIELDS = (
+    "cache_hits",
+    "cache_misses",
+    "cache_evictions",
+    "cog_access_attempts",
+    "cog_access_successes",
+    "cog_retryable_failures",
+    "cog_terminal_failures",
+    "cog_exhausted_failures",
+    "cog_window_fetch_attempts",
+    "cog_window_fetches",
+    "stac_request_attempts",
+    "stac_request_successes",
+    "stac_retryable_failures",
+    "stac_terminal_failures",
+    "stac_exhausted_failures",
+    "stac_validation_failures",
+)
 
 
 @dataclass(frozen=True)
@@ -33,9 +66,15 @@ class TiledBuildResult:
     source_retrieval_timestamps_utc: Mapping[str, str]
     source_window_reads: int
     source_cache_bytes: int
+    source_cache_peak_bytes: int
     source_cache_hits: int
     source_cache_misses: int
+    source_cache_evictions: int
     cog_window_fetches: int
+    reader_metrics_before: ReaderMetrics
+    reader_metrics_after: ReaderMetrics
+    reader_counter_delta: Mapping[str, int]
+    tile_metrics: tuple[TileMetrics, ...]
 
 
 class IntegratedSourceWindowReader:
@@ -70,9 +109,23 @@ class IntegratedSourceWindowReader:
             self.source_window_reads += 1
         assert_common_window_grid(source_windows)
         integrated = integrate_source_windows(source_windows)
+        des_values = {
+            DES_VALUE_VARIABLES[component]: integrated.des_metres[component]
+            for component in DES_COMPONENTS
+        }
+        des_shallow = {
+            DES_SHALLOW_VARIABLES[component]: np.where(
+                np.isfinite(integrated.des_metres[component]),
+                integrated.des_metres[component] < 1.0,
+                np.nan,
+            )
+            for component in DES_COMPONENTS
+        }
         return {
             **integrated.storage_mm,
             MIXED_WIDTH_VARIABLE: integrated.mixed_uncertainty_width_mm,
+            **des_values,
+            **des_shallow,
         }
 
 
@@ -86,8 +139,10 @@ def build_tiled_artifact_data(
     tile_order: str = "row-major",
 ) -> TiledBuildResult:
     """Run bounded retrieve/integrate/harmonise orchestration without writing."""
+    metrics_before = cog_reader.metrics
     integrated_reader = IntegratedSourceWindowReader(catalogue, cog_reader)
     profile = catalogue.profile
+    tile_metrics: list[TileMetrics] = []
     harmonised = harmonise_fractional_overlap_tiled(
         integrated_reader,
         BUILDER_VARIABLES,
@@ -98,7 +153,9 @@ def build_tiled_artifact_data(
         target_longitude,
         target_tile_shape=target_tile_shape,
         tile_order=tile_order,
+        tile_metrics_callback=tile_metrics.append,
     )
+    metrics_after = cog_reader.metrics
     artifact_data = SoilArtifactData(
         latitude=harmonised.latitude,
         longitude=harmonised.longitude,
@@ -117,6 +174,37 @@ def build_tiled_artifact_data(
         },
         full_cell_area_m2=harmonised.full_cell_area_m2,
         mixed_uncertainty_width_mm=harmonised.means[MIXED_WIDTH_VARIABLE],
+        mixed_uncertainty_width_mapped_prediction_sd_mm=(
+            harmonised.mapped_prediction_sd[MIXED_WIDTH_VARIABLE]
+        ),
+        mixed_uncertainty_width_valid_source_area_m2=(
+            harmonised.valid_source_area_m2[MIXED_WIDTH_VARIABLE]
+        ),
+        mixed_uncertainty_width_source_coverage_fraction=(
+            harmonised.source_coverage_fraction[MIXED_WIDTH_VARIABLE]
+        ),
+        depth_of_soil_m={
+            component: harmonised.means[DES_VALUE_VARIABLES[component]]
+            for component in DES_COMPONENTS
+        },
+        depth_of_soil_mapped_prediction_sd_m={
+            component: harmonised.mapped_prediction_sd[DES_VALUE_VARIABLES[component]]
+            for component in DES_COMPONENTS
+        },
+        depth_of_soil_valid_source_area_m2={
+            component: harmonised.valid_source_area_m2[DES_VALUE_VARIABLES[component]]
+            for component in DES_COMPONENTS
+        },
+        depth_of_soil_source_coverage_fraction={
+            component: harmonised.source_coverage_fraction[
+                DES_VALUE_VARIABLES[component]
+            ]
+            for component in DES_COMPONENTS
+        },
+        depth_of_soil_shallower_than_1m_fraction={
+            component: harmonised.means[DES_SHALLOW_VARIABLES[component]]
+            for component in DES_COMPONENTS
+        },
     )
     return TiledBuildResult(
         artifact_data=artifact_data,
@@ -124,8 +212,17 @@ def build_tiled_artifact_data(
             integrated_reader.retrieval_timestamps_utc
         ),
         source_window_reads=integrated_reader.source_window_reads,
-        source_cache_bytes=cog_reader.window_cache_bytes,
-        source_cache_hits=cog_reader.window_cache_hits,
-        source_cache_misses=cog_reader.window_cache_misses,
-        cog_window_fetches=cog_reader.cog_window_fetches,
+        source_cache_bytes=metrics_after.cache_current_bytes,
+        source_cache_peak_bytes=metrics_after.cache_peak_bytes,
+        source_cache_hits=metrics_after.cache_hits,
+        source_cache_misses=metrics_after.cache_misses,
+        source_cache_evictions=metrics_after.cache_evictions,
+        cog_window_fetches=metrics_after.cog_window_fetches,
+        reader_metrics_before=metrics_before,
+        reader_metrics_after=metrics_after,
+        reader_counter_delta={
+            field: getattr(metrics_after, field) - getattr(metrics_before, field)
+            for field in READER_COUNTER_FIELDS
+        },
+        tile_metrics=tuple(tile_metrics),
     )

@@ -1,6 +1,6 @@
 # B25b SLGA-to-AWRA-L builder contract
 
-Status: implemented prototype contract for review. Canonical-grid validation, the provisional artifact writer/runtime loader, and bounded target-cell tiling are implemented and tested on local synthetic/small-window data. This contract does **not** approve a full-WA artifact, soil-stratification bands, or operational integration.
+Status: implemented prototype contract for review. Canonical-grid validation, the provisional artifact writer/runtime loader, and bounded target-cell tiling are implemented and tested on local synthetic/small-window data. This contract does **not** approve the planned SWAZ artifact, soil-stratification bands, or operational integration. A full-WA static artifact is not planned for this phase.
 
 ## 1. Scope and invariants
 
@@ -90,7 +90,7 @@ The canonical coordinates come from one explicitly supplied AWRA-L NetCDF input 
 
 The Zenodo record cited in the evidence review corroborates the 681×841 coordinate grid but is not canonical: it is a third-party republication and its record metadata does not identify AWRA-L v7. The NCI source is the exact operational product lineage used by this project.
 
-The approved full-WA artifact footprint is the inclusive exact canonical subset with latitude centres −13 through −35 in source-descending order and longitude centres 112 through 129 in source-ascending order: 441×341 = 150,381 cells. These are the documented full-WA operational bounds. Selection is exact and contiguous; bounding values are not rounded or tolerance-matched.
+The approved initial artifact footprint is the inclusive exact canonical subset with latitude centres −27.45 through −35.20 in source-descending order and longitude centres 114.05 through 123.30 in source-ascending order: 156×186 = 29,016 cells. This rectangle contains the canonical cell centres within the approved SWAZ boundary’s +0.1° operational bbox, derived from its EPSG:4326 bounds west 114.10831281, south −35.13552459, east 123.24668541, and north −27.52350348. The boundary polygon is applied later as a runtime mask and does not alter static full-cell denominators. Selection is exact and contiguous; coordinate values are not rounded or tolerance-matched.
 
 Coordinates are one-dimensional finite float64 cell centres. Latitude may arrive descending and longitude ascending; their original values and orientation are persisted. Each axis must be strictly monotonic, unique, and regularly spaced. Nominal spacing is 0.05° and is accepted only when every step is within absolute tolerance `1e-10°` of the median and the median is within `1e-10°` of 0.05°. No coordinate is rounded or regenerated.
 
@@ -120,36 +120,56 @@ Regional or coastal polygons do not change the static full-cell denominator. The
 
 The original overlap engine remains correctness-first and limited to small windows. `slga.tiling` partitions target cells into disjoint tiles, derives a one-native-pixel-halo source window for each tile, and delegates source loading through a bounded reader callback. Global source row/column offsets are carried into geometry construction so source vertices and target-edge splitting are identical regardless of tile boundaries. `slga.builder` supplies the callback by reading all 18 exact common-grid windows, integrating them natively, and returning the seven cases plus mixed width. `AuthenticatedCogReader` aligns reads to internal COG blocks and retains them in a bounded in-memory LRU cache. Tests prove exact numerical equality with the untiled engine across multiple tile shapes and forward/reverse tile processing, including variable-specific nodata and no-overlap windows. Each target cell is assigned once; source-pixel overlap fractions may legitimately contribute to adjacent target cells but are not duplicated within a target-cell accumulation.
 
-A live 3×3 SWAZ pilot split into six 1×2 tiles issued 108 logical layer-window reads. The instrumented run required 72 COG window fetches and reused 36 cached windows, completed in 58.36 seconds (fresh-run range 44.66–71.02 seconds), retained ~84.9 MB of cache, and reported ~282 MB peak RSS on macOS. A reverse-order pass from the same cache used 108 cache hits, made no COG fetches, completed in 1.40 seconds, and every artifact array was exactly equal. This validates bounded orchestration and real-source tile-order invariance at tiny scale only. Production tile/stripe shape, byte-level HTTP transfer instrumentation, finer cache-block reuse, coastal/nodata profiling, and full-WA performance remain review gates.
+A live 3×3 SWAZ pilot split into six 1×2 tiles issued 108 logical layer-window reads. The instrumented run required 72 COG window fetches and reused 36 cached windows, completed in 58.36 seconds (fresh-run range 44.66–71.02 seconds), retained ~84.9 MB of cache, and reported ~282 MB peak RSS on macOS. A reverse-order pass from the same cache used 108 cache hits, made no COG fetches, completed in 1.40 seconds, and every artifact array was exactly equal. This validates bounded orchestration and real-source tile-order invariance at tiny scale only.
+
+A subsequent authenticated 5×5 Albany coastal/nodata pilot used one target tile and a 256 MiB cache. Its cold pass completed in 37.67 seconds with 18 logical reads, 18 successful STAC requests, 18 successful COG accesses, 18 attempted/completed COG window fetches, no retry/terminal/exhausted failures, no evictions, 36 MiB retained/peak source cache, and about 288 MiB process-lifetime peak RSS. Source coverage ranged from 0 to 1 (mean 0.6477), and 24 of 25 cells had finite storage for every case. A warm repeat was exactly equal in 4.15 seconds with 18 cache hits and no STAC/COG access. Because there was only one tile, reversing order repeated the same tile and supplied no new seam or order evidence. Actual HTTP transferred bytes remained unavailable.
+
+A user-approved comparison reran the same 25 Albany cells as nine 2×2 tiles with the same 256 MiB cache. It completed cold in 41.69 seconds: 162 logical reads resolved to 54 cache hits and 108 successful COG accesses/window fetches, with 18 successful STAC requests, no retry/terminal/exhausted failures, no evictions, 108 MiB peak source cache, and about 306 MiB process-lifetime peak RSS. Reverse order was exactly equal and cache-only in 4.04 seconds with 162 hits and no source access. Coverage and storage summaries matched the single-tile run. This supplies real coastal seam/order evidence and shows that 256 MiB contains the measured nine-tile working set; it does not make 2×2 a production recommendation because logical reads increased ninefold.
+
+The reader now exposes credential-free cumulative metrics that separately report STAC request attempts/successes/retryable/terminal/exhausted/validation failures; COG access attempts/successes/retryable/terminal/exhausted failures; attempted and completed `dataset.read()` window fetches; and cache hits, misses, evictions, current entries/bytes, and peak retained bytes. Each tiled build records reader snapshots before and after, counter deltas for that build, and elapsed time plus target/source extents for every completed tile. The pilot reports a process-lifetime peak-RSS high-water mark with explicit platform-unit conversion. Rasterio/GDAL still does not expose defensible HTTP transferred-byte counts through this instrumentation, so the pilot records transferred bytes as unavailable rather than estimating them. A final controlled Albany comparison expanded the footprint to 10×10 target cells. Four 5×5 tiles completed cold in 57.95 seconds with 72 logical reads/fetches, 144 MiB peak cache, and about 402 MiB peak RSS. One 10×10 tile completed cold in 56.09 seconds with 18 reads/fetches, 81 MiB peak cache, and about 532 MiB peak RSS. Both runs had no retries/failures/evictions, identical coverage/storage summaries (97/100 finite storage cells; coverage 0–1, mean 0.8526), and exact cache-only warm repeats in about 16.6 seconds. On this evidence, 10×10 target tiles with a 256 MiB cache are the provisional SWAZ production candidate: source reads fell fourfold and cache retention fell 63 MiB, while measured peak process memory increased by about 130 MiB.
+
+The candidate is valid only under the measured Albany conditions. The 156×186 SWAZ footprint partitions into 16×19 = 304 such tiles, or 5,472 logical layer-window reads before any exact-window cache reuse. That count is deterministic; runtime and HTTP transfer are not. No linear runtime extrapolation is accepted as a production forecast.
+
+The user approved a resumable production command using 10-row stripes across all 186 columns; each stripe contains 10×10 target tiles and the final stripe contains six rows. Each completed stripe is serialized into a new atomic directory containing compressed arrays and a JSON manifest with SHA-256, exact coordinates, grid/source/artifact contract hashes, code identity, tile/cache settings, source retrieval timestamps, and reader/tile metrics. Checkpoints contain no credentials. Resume accepts only exact identity/checksum matches and rejects drift, gaps, unexpected files, or corrupt arrays. A default six-hour work limit is checked between stripes; completed stripes survive timeout/failure. Exact stripe assembly must reconcile all canonical coordinates before immutable bundle writing. The build requires a clean Git worktree, publishes a checksummed build report inside the bundle, and removes checkpoints only after verified publication unless retention is requested. No SWAZ-wide runtime extrapolation is accepted from either small pilot.
 
 ## 8. Artifact schema and deterministic writing
 
-`slga.artifact` implements the following provisional schema with atomic temporary writes, close-then-validate, compression/chunking, complete embedded source/grid contract JSON, post-close SHA-256, and deterministic sidecar JSON. The user approved keeping this schema unchanged and provisional for the tiled pilots. It has been exercised only with tiny synthetic artifact data; no approved production artifact exists.
+`slga.artifact` implements the reviewed v1 candidate schema with atomic temporary writes, close-then-validate, compression/chunking, complete embedded source/grid contract JSON, post-close SHA-256, and deterministic sidecar JSON. It has been exercised with deterministic synthetic artifacts; no approved production artifact exists.
 
-Provisional artifact path:
+Immutable bundle layout:
 
 ```text
-data/processed/slga_awral/slga_awc_des_awral_wa_0p05deg_v1.nc
+data/processed/slga_awral/slga_awc_des_awral_swaz_0p05deg_v1/
+  slga_awc_des_awral_swaz_0p05deg_v1.nc
+  slga_awc_des_awral_swaz_0p05deg_v1.manifest.json
 ```
 
-Dimensions are `latitude`, `longitude`, and `storage_case` (the seven ordered labels in Section 5). Provisional variables are:
+Dimensions are `latitude`, `longitude`, `storage_case` (the seven ordered labels in Section 5), and `des_component` (`EV`, `10`, `90`). Variables are:
 
 - `awc_storage_capacity_mm(storage_case, latitude, longitude)` — float32, `NaN` nodata;
 - `mapped_prediction_sd_mm(storage_case, latitude, longitude)` — float32, `NaN` nodata;
 - `valid_source_area_m2(storage_case, latitude, longitude)` — float64;
 - `source_coverage_fraction(storage_case, latitude, longitude)` — float32;
 - `full_cell_area_m2(latitude, longitude)` — float64;
-- `mixed_uncertainty_width_mm(latitude, longitude)` — float32, `NaN` nodata.
+- `mixed_uncertainty_width_mm(latitude, longitude)` — float32, `NaN` nodata;
+- `mixed_uncertainty_width_mapped_prediction_sd_mm(latitude, longitude)` — float32, `NaN` nodata;
+- `mixed_uncertainty_width_valid_source_area_m2(latitude, longitude)` — float64;
+- `mixed_uncertainty_width_source_coverage_fraction(latitude, longitude)` — float32;
+- `depth_of_soil_m(des_component, latitude, longitude)` — float32, `NaN` nodata;
+- `depth_of_soil_mapped_prediction_sd_m(des_component, latitude, longitude)` — float32, `NaN` nodata;
+- `depth_of_soil_valid_source_area_m2(des_component, latitude, longitude)` — float64;
+- `depth_of_soil_source_coverage_fraction(des_component, latitude, longitude)` — float32;
+- `depth_of_soil_shallower_than_1m_fraction(des_component, latitude, longitude)` — float32, `NaN` nodata, with valid DES area as denominator.
 
-A later reviewed schema may add separately aggregated DES variables without changing risk outputs. Variable names may not be silently changed after artifact version `v1` is approved.
+The direct DES fields are mapped A- and B-horizon depth context, not effective rooting depth. The mixed width retains its own intersection support. Canonical machine-readable storage-case definitions record each AWC/DES component and interpretation. These additions do not change risk outputs. The user chose to retain version label `v1`; implementation does not itself constitute release approval.
 
-NetCDF data variables use zlib compression level 4 with shuffle enabled. Float32 storage/dispersion/coverage variables use chunks `(1, 64, 64)`; float64 area variables use `(64, 64)`, truncated at array edges. Coordinates remain float64 and uncompressed. Fill values are explicit (`NaN` for floating mapped values; no sentinel is shared with risk output). Global metadata includes contract/artifact versions, creation timestamp in UTC, canonical-grid provenance, EPSG codes, formula, tolerances, ordered cases, source-manifest ID and SHA-256, each source record, publisher multihashes, licences/citations, and scientific limitations. The artifact contains no risk variables.
+NetCDF data variables use zlib compression level 4 with shuffle enabled. Variables with `storage_case` or `des_component` use chunks `(1, 64, 64)`; two-dimensional grid variables use `(64, 64)`, truncated at array edges. Coordinates remain float64 and uncompressed. Fill values are explicit (`NaN` for floating mapped values; no sentinel is shared with risk output). Global metadata includes contract/artifact versions, creation timestamp in UTC, canonical-grid provenance, EPSG codes, formula, tolerances, ordered cases, source-manifest ID and SHA-256, each source record, publisher multihashes, licences/citations, and scientific limitations. The artifact contains no risk variables.
 
 Deterministic checksums are calculated only after closing files. The sidecar JSON is UTF-8, sorted by key, indented by two spaces, terminated by one newline, and records artifact filename, byte size, SHA-256, builder version/commit, contract version, canonical-grid identity/SHA-256, source-manifest identity/SHA-256, and source retrieval timestamps. Its own checksum is not recursively embedded.
 
 Byte-identical NetCDF output across library/platform versions is not promised. Reproducibility acceptance requires equal schema/metadata (excluding declared creation/retrieval timestamps), exact masks/coordinates/areas where specified, and numerical equality within the contract tolerances; each produced byte stream receives its actual SHA-256.
 
-Writes use a temporary file in the destination directory, validate the closed file, then atomically replace the destination. Failure leaves no apparently complete final artifact.
+Low-level writes now fail if either final file already exists. `write_soil_artifact_bundle()` writes and verifies both files in a new staging directory, validates the sidecar against the closed NetCDF and tracked contracts, then renames the complete directory to a new fail-if-present immutable bundle path on the same filesystem. Failed staging or promotion is cleaned without touching any prior bundle. Rollback selects a prior immutable bundle; it never overwrites that bundle.
 
 ## 9. Runtime loader contract
 
@@ -181,15 +201,15 @@ Source nodata, target-cell partial coverage, and zero valid overlap are expected
 
 ## 11. Prototype validity and review gates
 
-The B25b prototype is valid only for a tiny deterministic window where all requested COGs pass pinned identity/profile checks and source arrays share the native grid. It demonstrates window retrieval, native integration, and fractional-overlap behaviour—not full-Australia completeness, full-WA performance, paddock accuracy, scientific fitness, or approved soil bands.
+The B25b implementation is validated on synthetic grids and authenticated SWAZ windows up to 100 target cells where all requested COGs pass pinned identity/profile checks and source arrays share the native grid. It demonstrates retrieval, native integration, fractional-overlap behaviour, coastal nodata handling, tile-order equality, reviewed schema writing/loading, and immutable bundle mechanics—not SWAZ-wide completeness or performance, paddock accuracy, scientific fitness, or approved soil bands.
 
-Before a full-WA artifact build, review and approve:
+Before the SWAZ artifact build:
 
-- the now-pinned authoritative AWRA-L v7 grid-source contract, independently computed input checksum, and approved 441×341 operational-bbox footprint;
-- final artifact variables/schema/chunking after inspecting pilot outputs;
-- production tile/stripe size, HTTP transfer instrumentation, COG-block cache/reuse, coastal/nodata behavior, and full-WA memory/performance while preserving the now-tested tile-invariance rules;
-- builder cache policy and whether independent full-object source checksums are required;
-- DES uncertainty presentation;
-- external soil-science fitness and terminology review.
+- revalidate the pinned authoritative AWRA-L v7 input, tracked 18-source manifest, approved boundary hash, and exact 156×186 footprint;
+- retain the user-approved v1 candidate schema/chunking and provisional 10×10 target-tile / 256 MiB cache choice unless new evidence triggers a versioned contract change;
+- define and approve whole-SWAZ elapsed, failure, cleanup, and restart/resume behavior;
+- decide whether external HTTP byte measurement or independent full-object source checksums are required;
+- approve the internal distribution location, bundle review authority, and rollback procedure;
+- complete external soil-science fitness, terminology, direct-DES, and uncertainty-scenario review.
 
 Minimum acceptable coverage, coastal/polygon summary denominator policy, stratification bands/reference domain, and uncertainty-width thresholds remain explicitly unresolved and are not B25b constants.

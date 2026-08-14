@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+from dataclasses import replace
 from pathlib import Path
 
 import numpy as np
@@ -11,12 +12,16 @@ from src.soil_moisture_trio.slga import artifact as artifact_module
 from src.soil_moisture_trio.slga.artifact import (
     ARTIFACT_CONTRACT_VERSION,
     ARTIFACT_VERSION,
+    DEFAULT_ARTIFACT_FILENAME,
+    DEFAULT_SIDECAR_FILENAME,
+    DES_COMPONENTS,
     STORAGE_CASES,
     ArtifactBuildMetadata,
     SoilArtifactData,
     SoilArtifactError,
     load_soil_artifact,
     write_soil_artifact,
+    write_soil_artifact_bundle,
 )
 from src.soil_moisture_trio.slga.grid import CanonicalGrid, sha256_file
 
@@ -31,7 +36,17 @@ def _write_contracts(tmp_path: Path) -> tuple[Path, Path, CanonicalGrid]:
         "grid_contract_schema_version": 1,
         "grid_contract_id": "synthetic_grid_v1",
         "source": {},
-        "coordinate_contract": {},
+        "coordinate_contract": {
+            "approved_swaz_artifact_footprint": {
+                "latitude_first": -30.0,
+                "latitude_last": -30.1,
+                "latitude_length": 3,
+                "longitude_first": 115.0,
+                "longitude_last": 115.1,
+                "longitude_length": 3,
+                "cell_count": 9,
+            }
+        },
     }
     grid_contract_path.write_text(
         json.dumps(grid_contract, sort_keys=True), encoding="utf-8"
@@ -70,6 +85,14 @@ def _data() -> SoilArtifactData:
     }
     valid_area = {case: np.full((3, 3), 80.0) for case in STORAGE_CASES}
     coverage = {case: np.full((3, 3), 0.8) for case in STORAGE_CASES}
+    des = {
+        component: np.full((3, 3), 0.8 + index * 0.1)
+        for index, component in enumerate(DES_COMPONENTS)
+    }
+    des_dispersion = {component: np.full((3, 3), 0.05) for component in DES_COMPONENTS}
+    des_valid_area = {component: np.full((3, 3), 80.0) for component in DES_COMPONENTS}
+    des_coverage = {component: np.full((3, 3), 0.8) for component in DES_COMPONENTS}
+    des_shallow = {component: np.full((3, 3), 0.5) for component in DES_COMPONENTS}
     return SoilArtifactData(
         latitude=LATITUDE,
         longitude=LONGITUDE,
@@ -79,6 +102,14 @@ def _data() -> SoilArtifactData:
         source_coverage_fraction=coverage,
         full_cell_area_m2=np.full((3, 3), 100.0),
         mixed_uncertainty_width_mm=np.full((3, 3), 20.0),
+        mixed_uncertainty_width_mapped_prediction_sd_mm=np.full((3, 3), 2.0),
+        mixed_uncertainty_width_valid_source_area_m2=np.full((3, 3), 80.0),
+        mixed_uncertainty_width_source_coverage_fraction=np.full((3, 3), 0.8),
+        depth_of_soil_m=des,
+        depth_of_soil_mapped_prediction_sd_m=des_dispersion,
+        depth_of_soil_valid_source_area_m2=des_valid_area,
+        depth_of_soil_source_coverage_fraction=des_coverage,
+        depth_of_soil_shallower_than_1m_fraction=des_shallow,
     )
 
 
@@ -152,7 +183,16 @@ def test_writer_and_runtime_loader_round_trip_exact_subset(tmp_path, monkeypatch
         "source_coverage_fraction",
         "full_cell_area_m2",
         "mixed_uncertainty_width_mm",
+        "mixed_uncertainty_width_mapped_prediction_sd_mm",
+        "mixed_uncertainty_width_valid_source_area_m2",
+        "mixed_uncertainty_width_source_coverage_fraction",
+        "depth_of_soil_m",
+        "depth_of_soil_mapped_prediction_sd_m",
+        "depth_of_soil_valid_source_area_m2",
+        "depth_of_soil_source_coverage_fraction",
+        "depth_of_soil_shallower_than_1m_fraction",
     }
+    assert tuple(str(value) for value in subset.des_component.values) == DES_COMPONENTS
     assert not any("risk" in name for name in subset.variables)
     assert subset.awc_storage_capacity_mm.dtype == np.dtype("float32")
     assert subset.valid_source_area_m2.dtype == np.dtype("float64")
@@ -167,6 +207,7 @@ def test_writer_and_runtime_loader_round_trip_exact_subset(tmp_path, monkeypatch
     with xr.open_dataset(artifact, decode_times=False, mask_and_scale=False) as dataset:
         assert dataset.awc_storage_capacity_mm.encoding["chunksizes"] == (1, 3, 3)
         assert dataset.full_cell_area_m2.encoding["chunksizes"] == (3, 3)
+        assert dataset.depth_of_soil_m.encoding["chunksizes"] == (1, 3, 3)
         assert dataset.awc_storage_capacity_mm.encoding["zlib"] is True
         assert dataset.latitude.encoding["zlib"] is False
 
@@ -260,6 +301,21 @@ def test_requested_coordinates_must_be_exact_contiguous_and_ordered(tmp_path):
         )
 
 
+def test_writer_requires_the_approved_artifact_footprint(tmp_path):
+    source_manifest, grid_contract, grid = _write_contracts(tmp_path)
+    data = replace(_data(), latitude=LATITUDE + 1e-12)
+
+    with pytest.raises(SoilArtifactError, match="approved SWAZ footprint"):
+        write_soil_artifact(
+            tmp_path / "soil.nc",
+            tmp_path / "soil.json",
+            data,
+            _metadata(grid),
+            source_manifest_path=source_manifest,
+            grid_contract_path=grid_contract,
+        )
+
+
 def test_non_utc_retrieval_timestamp_fails_before_writing(tmp_path):
     source_manifest, grid_contract, grid = _write_contracts(tmp_path)
     metadata = ArtifactBuildMetadata(
@@ -301,6 +357,30 @@ def test_invalid_values_and_retrieval_identity_fail_before_writing(tmp_path):
         )
     assert not artifact.exists()
     assert not sidecar.exists()
+
+    data = _data()
+    data.mixed_uncertainty_width_source_coverage_fraction[0, 0] = 1.1
+    with pytest.raises(SoilArtifactError, match="mixed uncertainty width"):
+        write_soil_artifact(
+            artifact,
+            sidecar,
+            data,
+            _metadata(grid),
+            source_manifest_path=source_manifest,
+            grid_contract_path=grid_contract,
+        )
+
+    data = _data()
+    data.depth_of_soil_shallower_than_1m_fraction["EV"][0, 0] = -0.1
+    with pytest.raises(SoilArtifactError, match="shallow fraction"):
+        write_soil_artifact(
+            artifact,
+            sidecar,
+            data,
+            _metadata(grid),
+            source_manifest_path=source_manifest,
+            grid_contract_path=grid_contract,
+        )
 
     metadata = ArtifactBuildMetadata(
         canonical_grid=grid,
@@ -372,6 +452,87 @@ def test_sidecar_promotion_failure_removes_promoted_artifact(tmp_path, monkeypat
     assert not artifact.exists()
     assert not sidecar.exists()
     assert not list(tmp_path.glob(".*.tmp"))
+
+
+def test_immutable_destinations_preserve_existing_release(tmp_path):
+    artifact, sidecar, source_manifest, grid_contract = _write(tmp_path)
+    artifact_bytes = artifact.read_bytes()
+    sidecar_bytes = sidecar.read_bytes()
+    _source_manifest, _grid_contract, grid = _write_contracts(tmp_path / "other")
+
+    with pytest.raises(SoilArtifactError, match="must not already exist"):
+        write_soil_artifact(
+            artifact,
+            sidecar,
+            _data(),
+            _metadata(grid),
+            source_manifest_path=source_manifest,
+            grid_contract_path=grid_contract,
+        )
+
+    assert artifact.read_bytes() == artifact_bytes
+    assert sidecar.read_bytes() == sidecar_bytes
+
+
+def test_bundle_publication_is_immutable_and_loadable(tmp_path):
+    source_manifest, grid_contract, grid = _write_contracts(tmp_path)
+    bundle = tmp_path / "soil_bundle_v1"
+
+    document = write_soil_artifact_bundle(
+        bundle,
+        _data(),
+        _metadata(grid),
+        additional_json_files={"build_report.json": {"status": "review"}},
+        source_manifest_path=source_manifest,
+        grid_contract_path=grid_contract,
+    )
+
+    artifact = bundle / DEFAULT_ARTIFACT_FILENAME
+    sidecar = bundle / DEFAULT_SIDECAR_FILENAME
+    assert document["artifact_filename"] == DEFAULT_ARTIFACT_FILENAME
+    assert document["bundle_additional_files"]["build_report.json"]["size_bytes"] > 0
+    assert artifact.is_file()
+    assert sidecar.is_file()
+    assert (bundle / "build_report.json").is_file()
+    loaded = _load(artifact, sidecar, source_manifest, grid_contract)
+    assert loaded.sizes == {
+        "storage_case": 7,
+        "des_component": 3,
+        "latitude": 3,
+        "longitude": 3,
+    }
+    (bundle / "build_report.json").write_text("{}\n", encoding="utf-8")
+    with pytest.raises(SoilArtifactError, match="bundle file size mismatch"):
+        _load(artifact, sidecar, source_manifest, grid_contract)
+    with pytest.raises(SoilArtifactError, match="bundle already exists"):
+        write_soil_artifact_bundle(
+            bundle,
+            _data(),
+            _metadata(grid),
+            source_manifest_path=source_manifest,
+            grid_contract_path=grid_contract,
+        )
+
+
+def test_failed_bundle_promotion_cleans_staging(tmp_path, monkeypatch):
+    source_manifest, grid_contract, grid = _write_contracts(tmp_path)
+    bundle = tmp_path / "soil_bundle_v1"
+
+    def fail_rename(*_args):
+        raise OSError("simulated bundle promotion failure")
+
+    monkeypatch.setattr(artifact_module.os, "rename", fail_rename)
+    with pytest.raises(OSError, match="bundle promotion failure"):
+        write_soil_artifact_bundle(
+            bundle,
+            _data(),
+            _metadata(grid),
+            source_manifest_path=source_manifest,
+            grid_contract_path=grid_contract,
+        )
+
+    assert not bundle.exists()
+    assert not list(tmp_path.glob(".*.staging"))
 
 
 def test_repeated_writes_are_numerically_reproducible(tmp_path):

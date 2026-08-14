@@ -76,6 +76,8 @@ All outputs (`.nc`, `_summary.json`, risk PNG, `stress_diagnostics.png`) land in
 --min-lat -35 --max-lat -13 --min-lon 112 --max-lon 129
 ```
 
+**Phase 5 static soil artifact scope:** the first artifact is SWAZ-only, not full WA. Its exact canonical AWRA-L rectangle is latitude −27.45…−35.20 (descending) and longitude 114.05…123.30 (ascending), 156×186 = 29,016 cells, covering the approved boundary’s +0.1° operational bbox. Do not run a full-WA static SLGA artifact build in this phase.
+
 **SILO data lag:** SILO tiles are typically available with a 1–2 day lag. Always set `--end-date` to at most 2 days before today or the pipeline will fail with shape-mismatch errors on missing future tiles.
 
 ## Session History
@@ -101,6 +103,11 @@ All outputs (`.nc`, `_summary.json`, risk PNG, `stress_diagnostics.png`) land in
 - [sessions/2026-08-12-phase5-slga-b25b-prototype.md](sessions/2026-08-12-phase5-slga-b25b-prototype.md) — deterministic B25b contract, narrow SLGA modules, and verified small-window AWC+DES prototype
 - [sessions/2026-08-12-phase5-slga-canonical-grid-artifact.md](sessions/2026-08-12-phase5-slga-canonical-grid-artifact.md) — pinned AWRA-L v7 grid input, deterministic artifact writer/loader, and tiled invariance proof
 - [sessions/2026-08-12-phase5-slga-doc-sync.md](sessions/2026-08-12-phase5-slga-doc-sync.md) — active documentation synchronized with the implemented B25b prototype and remaining production gates
+- [sessions/2026-08-14-phase5-swaz-artifact-scope.md](sessions/2026-08-14-phase5-swaz-artifact-scope.md) — production static artifact scope changed from full WA to the SWAZ buffered operational rectangle
+- [sessions/2026-08-14-phase5-slga-profiling-instrumentation.md](sessions/2026-08-14-phase5-slga-profiling-instrumentation.md) — credential-safe retry/cache/tile/RSS metrics added before a larger representative SWAZ pilot
+- [sessions/2026-08-14-phase5-slga-albany-coastal-pilot.md](sessions/2026-08-14-phase5-slga-albany-coastal-pilot.md) — authenticated Albany coastal/nodata profiles through 100 cells; provisional 10×10 tile / 256 MiB SWAZ build setting
+- [sessions/2026-08-14-phase5-slga-artifact-schema-review.md](sessions/2026-08-14-phase5-slga-artifact-schema-review.md) — schema/DES/promotion review followed by approved direct DES, width-support, and immutable-bundle implementation
+- [sessions/2026-08-14-phase5-slga-resumable-swaz-build.md](sessions/2026-08-14-phase5-slga-resumable-swaz-build.md) — explicit clean-commit SWAZ command with checksum-bound resumable stripes; not executed
 
 ## First Principles
 

@@ -4,6 +4,7 @@ import numpy as np
 import pytest
 from rasterio import Affine
 
+import src.soil_moisture_trio.slga.tiling as tiling_module
 from src.soil_moisture_trio.slga.harmonise import (
     HarmonisationError,
     harmonise_fractional_overlap,
@@ -90,6 +91,42 @@ def test_tiled_results_are_invariant_to_tile_shape_and_processing_order():
         _assert_results_equal(expected, actual)
         assert max(window.shape[0] for window in windows) <= tile_shape[0] * 11 + 3
         assert max(window.shape[1] for window in windows) <= tile_shape[1] * 11 + 3
+
+
+def test_per_tile_elapsed_metrics_are_stable_with_a_mocked_clock(monkeypatch):
+    values = _source_values()
+    observed_metrics = []
+    clock = iter([1.0, 1.25, 2.0, 2.5, 3.0, 3.75, 4.0, 5.0])
+    monkeypatch.setattr(tiling_module.time, "perf_counter", lambda: next(clock))
+
+    harmonise_fractional_overlap_tiled(
+        _reader(values, []),
+        tuple(values),
+        SOURCE_SHAPE,
+        SOURCE_TRANSFORM,
+        "EPSG:4326",
+        TARGET_LATITUDE[:2],
+        TARGET_LONGITUDE[:2],
+        target_tile_shape=(1, 1),
+        tile_metrics_callback=observed_metrics.append,
+    )
+
+    assert [metric.tile_index for metric in observed_metrics] == [0, 1, 2, 3]
+    assert [metric.elapsed_seconds for metric in observed_metrics] == [
+        0.25,
+        0.5,
+        0.75,
+        1.0,
+    ]
+    assert [
+        (
+            metric.target_row_start,
+            metric.target_row_stop,
+            metric.target_col_start,
+            metric.target_col_stop,
+        )
+        for metric in observed_metrics
+    ] == [(0, 1, 0, 1), (0, 1, 1, 2), (1, 2, 0, 1), (1, 2, 1, 2)]
 
 
 def test_complete_source_area_reconciles_without_cross_tile_double_counting():

@@ -30,6 +30,7 @@ class IntegrationError(ValueError):
 @dataclass(frozen=True)
 class StorageIntegration:
     storage_mm: Mapping[str, np.ndarray]
+    des_metres: Mapping[str, np.ndarray]
     represented_depth_mm: Mapping[str, np.ndarray]
     mixed_uncertainty_width_mm: np.ndarray
 
@@ -101,6 +102,7 @@ def integrate_storage(
 
     return StorageIntegration(
         storage_mm=storage,
+        des_metres=des,
         represented_depth_mm=represented_depth,
         mixed_uncertainty_width_mm=mixed_width,
     )

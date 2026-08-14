@@ -158,6 +158,18 @@ def test_tracked_grid_contract_pins_the_operational_awral_v7_source():
     )
     assert contract["coordinate_contract"]["latitude"]["length"] == 681
     assert contract["coordinate_contract"]["longitude"]["length"] == 841
+    footprint = contract["coordinate_contract"]["approved_swaz_artifact_footprint"]
+    assert footprint["latitude_first"] == -27.45
+    assert footprint["latitude_last"] == -35.2
+    assert footprint["latitude_length"] == 156
+    assert footprint["longitude_first"] == 114.05
+    assert footprint["longitude_last"] == 123.3
+    assert footprint["longitude_length"] == 186
+    assert footprint["cell_count"] == 29_016
+    assert footprint["boundary_buffer_degrees"] == 0.1
+    assert footprint["boundary_sha256"] == (
+        "407ce1b536e1391e73677d04e995de8c913d49859c328b3f8904deb92b198b66"
+    )
 
 
 def test_exact_coordinate_range_preserves_source_values_and_orientation():

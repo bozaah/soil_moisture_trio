@@ -7,7 +7,9 @@ import argparse
 import json
 import logging
 import resource
+import sys
 import time
+from dataclasses import asdict
 from pathlib import Path
 
 import numpy as np
@@ -99,31 +101,50 @@ def main() -> None:
         )
         _require_exact_artifact_data(data, verification.artifact_data)
         opposite_order_verification = {
-            "cache_hits": verification.source_cache_hits - result.source_cache_hits,
-            "cache_misses": (
-                verification.source_cache_misses - result.source_cache_misses
-            ),
-            "cog_window_fetches": (
-                verification.cog_window_fetches - result.cog_window_fetches
-            ),
             "elapsed_seconds": time.perf_counter() - verification_started,
             "exactly_equal": True,
+            "reader_counter_delta": dict(verification.reader_counter_delta),
+            "tile_metrics": [asdict(metric) for metric in verification.tile_metrics],
             "tile_order": opposite_order,
         }
     summary = {
         "canonical_grid_contract_id": grid.contract_id,
         "canonical_grid_source_sha256": grid.source_sha256,
+        "depth_of_soil_m": {
+            component: _finite_summary(values)
+            for component, values in data.depth_of_soil_m.items()
+        },
+        "depth_of_soil_shallower_than_1m_fraction": {
+            component: _finite_summary(values)
+            for component, values in data.depth_of_soil_shallower_than_1m_fraction.items()
+        },
         "elapsed_seconds": elapsed,
         "latitude": latitude.tolist(),
         "longitude": longitude.tolist(),
-        "max_resident_set_size_platform_units": resource.getrusage(
-            resource.RUSAGE_SELF
-        ).ru_maxrss,
+        "process_peak_rss": _process_peak_rss_metrics(),
+        "reader_metrics": {
+            "after": asdict(result.reader_metrics_after),
+            "before": asdict(result.reader_metrics_before),
+            "counter_delta": dict(result.reader_counter_delta),
+            "http_transfer_bytes": None,
+            "http_transfer_bytes_status": (
+                "unavailable: Rasterio/GDAL does not expose defensible HTTP byte "
+                "counts through this reader instrumentation"
+            ),
+        },
         "source_cache_bytes": result.source_cache_bytes,
-        "source_cache_hits": result.source_cache_hits,
-        "source_cache_misses": result.source_cache_misses,
-        "source_cog_window_fetches": result.cog_window_fetches,
+        "source_cache_evictions": result.reader_counter_delta["cache_evictions"],
+        "source_cache_hits": result.reader_counter_delta["cache_hits"],
+        "source_cache_misses": result.reader_counter_delta["cache_misses"],
+        "source_cache_peak_bytes": result.source_cache_peak_bytes,
+        "source_cog_window_fetch_attempts": result.reader_counter_delta[
+            "cog_window_fetch_attempts"
+        ],
+        "source_cog_window_fetches": result.reader_counter_delta["cog_window_fetches"],
         "opposite_order_verification": opposite_order_verification,
+        "mixed_uncertainty_width_coverage": _finite_summary(
+            data.mixed_uncertainty_width_source_coverage_fraction
+        ),
         "source_manifest_id": catalogue.manifest_id,
         "source_manifest_sha256": catalogue.sha256,
         "source_retrieval_timestamps_utc": dict(
@@ -136,6 +157,7 @@ def main() -> None:
         "target_cell_count": target_cells,
         "target_tile_order": args.tile_order,
         "target_tile_shape": [args.tile_rows, args.tile_cols],
+        "tile_metrics": [asdict(metric) for metric in result.tile_metrics],
         "valid_source_coverage": {
             case: _finite_summary(values)
             for case, values in data.source_coverage_fraction.items()
@@ -152,12 +174,50 @@ def main() -> None:
     )
 
 
+def _process_peak_rss_metrics() -> dict[str, int | str | None]:
+    raw_value = resource.getrusage(resource.RUSAGE_SELF).ru_maxrss
+    bytes_value, raw_units = _normalise_peak_rss_bytes(raw_value, sys.platform)
+    return {
+        "bytes": bytes_value,
+        "raw_ru_maxrss": raw_value,
+        "raw_units": raw_units,
+        "scope": "process lifetime high-water mark, sampled after the build",
+    }
+
+
+def _normalise_peak_rss_bytes(raw_value: int, platform: str) -> tuple[int | None, str]:
+    if raw_value < 0:
+        raise ValueError("ru_maxrss must be non-negative.")
+    if platform == "darwin":
+        return raw_value, "bytes"
+    if platform.startswith("linux"):
+        return raw_value * 1024, "KiB"
+    return None, "platform-dependent units"
+
+
 def _require_exact_artifact_data(first, second) -> None:
     mappings = (
         (first.storage_mm, second.storage_mm),
         (first.mapped_prediction_sd_mm, second.mapped_prediction_sd_mm),
         (first.valid_source_area_m2, second.valid_source_area_m2),
         (first.source_coverage_fraction, second.source_coverage_fraction),
+        (first.depth_of_soil_m, second.depth_of_soil_m),
+        (
+            first.depth_of_soil_mapped_prediction_sd_m,
+            second.depth_of_soil_mapped_prediction_sd_m,
+        ),
+        (
+            first.depth_of_soil_valid_source_area_m2,
+            second.depth_of_soil_valid_source_area_m2,
+        ),
+        (
+            first.depth_of_soil_source_coverage_fraction,
+            second.depth_of_soil_source_coverage_fraction,
+        ),
+        (
+            first.depth_of_soil_shallower_than_1m_fraction,
+            second.depth_of_soil_shallower_than_1m_fraction,
+        ),
     )
     for first_mapping, second_mapping in mappings:
         if set(first_mapping) != set(second_mapping):
@@ -175,6 +235,21 @@ def _require_exact_artifact_data(first, second) -> None:
             "mixed_uncertainty_width_mm",
             first.mixed_uncertainty_width_mm,
             second.mixed_uncertainty_width_mm,
+        ),
+        (
+            "mixed_uncertainty_width_mapped_prediction_sd_mm",
+            first.mixed_uncertainty_width_mapped_prediction_sd_mm,
+            second.mixed_uncertainty_width_mapped_prediction_sd_mm,
+        ),
+        (
+            "mixed_uncertainty_width_valid_source_area_m2",
+            first.mixed_uncertainty_width_valid_source_area_m2,
+            second.mixed_uncertainty_width_valid_source_area_m2,
+        ),
+        (
+            "mixed_uncertainty_width_source_coverage_fraction",
+            first.mixed_uncertainty_width_source_coverage_fraction,
+            second.mixed_uncertainty_width_source_coverage_fraction,
         ),
     ):
         if not np.array_equal(first_values, second_values, equal_nan=True):

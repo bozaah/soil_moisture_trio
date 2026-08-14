@@ -1,15 +1,33 @@
 {
   "coordinate_contract": {
-    "approved_full_wa_artifact_footprint": {
-      "cell_count": 150381,
-      "decision_date": "2026-08-12",
-      "latitude_first": -13.0,
-      "latitude_last": -35.0,
-      "latitude_length": 441,
-      "longitude_first": 112.0,
-      "longitude_last": 129.0,
-      "longitude_length": 341,
-      "selection_rule": "inclusive exact contiguous source-coordinate ranges in original orientation; no tolerance, rounding, or coordinate regeneration"
+    "approved_swaz_artifact_footprint": {
+      "artifact_scope": "South West Agricultural Zone buffered operational rectangle; the approved boundary polygon is applied later as a runtime mask and does not alter static full-cell denominators",
+      "boundary_bbox_epsg4326": {
+        "east": 123.24668541,
+        "north": -27.52350348,
+        "south": -35.13552459,
+        "west": 114.10831281
+      },
+      "boundary_buffer_degrees": 0.1,
+      "boundary_crs": "EPSG:28350",
+      "boundary_feature_count": 5,
+      "boundary_reference": "data/south_west_agricultural_boundary.gpkg",
+      "boundary_sha256": "407ce1b536e1391e73677d04e995de8c913d49859c328b3f8904deb92b198b66",
+      "cell_count": 29016,
+      "decision_date": "2026-08-14",
+      "latitude_first": -27.45,
+      "latitude_last": -35.2,
+      "latitude_length": 156,
+      "longitude_first": 114.05,
+      "longitude_last": 123.3,
+      "longitude_length": 186,
+      "operational_buffered_bbox_epsg4326": {
+        "east": 123.346685,
+        "north": -27.423503,
+        "south": -35.235525,
+        "west": 114.008313
+      },
+      "selection_rule": "inclusive exact contiguous source-coordinate centres within the boundary-derived 0.1 degree buffered bbox, in original orientation; no tolerance, rounding, or coordinate regeneration"
     },
     "coordinate_semantics": "AWRA-L model grid cell centres; no coordinate bounds are supplied by the source, so artifact cell edges are derived from adjacent-centre midpoints",
     "latitude": {

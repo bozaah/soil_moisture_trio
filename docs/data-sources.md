@@ -36,7 +36,7 @@ The explicit Phase 5 SLGA artifact builder uses the completed 2025 Bureau-produc
 - product lineage `historical/v1/AWRALv7/processed/deciles/day`;
 - byte size `312193677` and independently computed SHA-256 `353af96c7826111a54e189120ed6e1dcb6f9d2a1a0d6966c286aae4f4429095b`;
 - float64 `latitude` (681 descending centres, −10 to −44) and `longitude` (841 ascending centres, 112 to 154), coordinate attributes, spacing, and coordinate-value hashes;
-- approved full-WA artifact subset: exact inclusive latitude −13…−35 and longitude 112…129, shape 441×341 (150,381 cells).
+- approved initial SWAZ artifact subset: exact inclusive latitude centres −27.45…−35.20 and longitude centres 114.05…123.30, shape 156×186 (29,016 cells), covering the approved boundary’s +0.1° operational bbox.
 
 The remote annual object is not treated as immutable merely because its URL is stable. The builder accepts only an explicitly supplied local file matching the pinned filename, size, full-file SHA-256, schema, and coordinates; it performs no implicit download. The local monthly WA calibration subset is not a substitute. Zenodo record 10689080 corroborates the grid dimensions/coordinates but is a third-party republication without explicit AWRA-L v7 identity in its record metadata, so it is not the canonical source.
 
@@ -51,7 +51,7 @@ Phase 5 uses an approved, tracked set of static Soil and Landscape Grid of Austr
 
 Authenticated source reads require `TERN_API_KEY`. Credentials are scoped to HTTP Basic/GDAL access and are not persisted or logged. The narrow prototype reads bounded full-resolution COG windows, preserves nodata, integrates a DES-capped nominal 0–100 cm AWC storage-capacity metric, and harmonises it to canonical AWRA-L cells using fractional overlap in EPSG:3577.
 
-These layers are modelled static soil context, not observed paddock PAWC, current water storage, crop-specific effective rooting depth, or independent validation of AWRA-L. AWC and AWRA-L have shared soil-map/pedotransfer ancestry. No approved full-WA artifact exists yet, and operational drought runs do not contact TERN or load SLGA data. See [`slga-evidence-review.md`](slga-evidence-review.md) and [`slga-builder-contract.md`](slga-builder-contract.md).
+These layers are modelled static soil context, not observed paddock PAWC, current water storage, crop-specific effective rooting depth, or independent validation of AWRA-L. AWC and AWRA-L have shared soil-map/pedotransfer ancestry. No approved SWAZ artifact exists yet, no full-WA artifact is planned for this phase, and operational drought runs do not contact TERN or load SLGA data. See [`slga-evidence-review.md`](slga-evidence-review.md) and [`slga-builder-contract.md`](slga-builder-contract.md).
 
 ## SILO Temperature and VPD
 

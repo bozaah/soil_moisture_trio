@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import os
+import shutil
 import tempfile
 from dataclasses import dataclass
 from datetime import datetime
@@ -24,9 +25,29 @@ from src.soil_moisture_trio.slga.harmonise import (
 )
 from src.soil_moisture_trio.slga.integration import STORAGE_CASE_COMPONENTS
 
-ARTIFACT_CONTRACT_VERSION = "b25b-slga-awral-prototype-v1"
+ARTIFACT_CONTRACT_VERSION = "b25b-slga-awral-swaz-v1"
 ARTIFACT_VERSION = "v1"
+DEFAULT_ARTIFACT_FILENAME = "slga_awc_des_awral_swaz_0p05deg_v1.nc"
+DEFAULT_SIDECAR_FILENAME = "slga_awc_des_awral_swaz_0p05deg_v1.manifest.json"
 STORAGE_CASES = tuple(STORAGE_CASE_COMPONENTS)
+DES_COMPONENTS = ("EV", "10", "90")
+STORAGE_CASE_INTERPRETATIONS = {
+    "ev": "primary expected-value storage case",
+    "awc05_des_ev": "AWC-only lower component with DES expected value",
+    "awc95_des_ev": "AWC-only upper component with DES expected value",
+    "awc_ev_des10": "DES-only lower component with AWC expected value",
+    "awc_ev_des90": "DES-only upper component with AWC expected value",
+    "mixed_lower_awc05_des10": "provisional mixed-quantile lower scenario",
+    "mixed_upper_awc95_des90": "provisional mixed-quantile upper scenario",
+}
+STORAGE_CASE_DEFINITIONS = {
+    case: {
+        "awc_component": STORAGE_CASE_COMPONENTS[case][0],
+        "des_component": STORAGE_CASE_COMPONENTS[case][1],
+        "interpretation": STORAGE_CASE_INTERPRETATIONS[case],
+    }
+    for case in STORAGE_CASES
+}
 DEFAULT_SOURCE_MANIFEST_PATH = (
     Path(__file__).resolve().parents[3] / "manifests" / "slga_awc_des_sources_v1.json"
 )
@@ -37,6 +58,14 @@ REQUIRED_DATA_VARIABLES = {
     "source_coverage_fraction",
     "full_cell_area_m2",
     "mixed_uncertainty_width_mm",
+    "mixed_uncertainty_width_mapped_prediction_sd_mm",
+    "mixed_uncertainty_width_valid_source_area_m2",
+    "mixed_uncertainty_width_source_coverage_fraction",
+    "depth_of_soil_m",
+    "depth_of_soil_mapped_prediction_sd_m",
+    "depth_of_soil_valid_source_area_m2",
+    "depth_of_soil_source_coverage_fraction",
+    "depth_of_soil_shallower_than_1m_fraction",
 }
 SCIENTIFIC_LIMITATIONS = (
     "Static modelled SLGA storage-capacity context, not current soil water, observed "
@@ -59,6 +88,14 @@ class SoilArtifactData:
     source_coverage_fraction: Mapping[str, np.ndarray]
     full_cell_area_m2: np.ndarray
     mixed_uncertainty_width_mm: np.ndarray
+    mixed_uncertainty_width_mapped_prediction_sd_mm: np.ndarray
+    mixed_uncertainty_width_valid_source_area_m2: np.ndarray
+    mixed_uncertainty_width_source_coverage_fraction: np.ndarray
+    depth_of_soil_m: Mapping[str, np.ndarray]
+    depth_of_soil_mapped_prediction_sd_m: Mapping[str, np.ndarray]
+    depth_of_soil_valid_source_area_m2: Mapping[str, np.ndarray]
+    depth_of_soil_source_coverage_fraction: Mapping[str, np.ndarray]
+    depth_of_soil_shallower_than_1m_fraction: Mapping[str, np.ndarray]
 
 
 @dataclass(frozen=True)
@@ -86,6 +123,10 @@ def write_soil_artifact(
         raise SoilArtifactError("Artifact and sidecar paths must differ.")
     if artifact.suffix != ".nc" or sidecar.suffix != ".json":
         raise SoilArtifactError("Artifact must be .nc and sidecar must be .json.")
+    if artifact.exists() or sidecar.exists():
+        raise SoilArtifactError(
+            "Immutable artifact and sidecar destinations must not already exist."
+        )
 
     source_manifest_file = Path(source_manifest_path)
     grid_contract_file = Path(grid_contract_path)
@@ -171,6 +212,101 @@ def write_soil_artifact(
     return sidecar_document
 
 
+def write_soil_artifact_bundle(
+    bundle_path: Path,
+    data: SoilArtifactData,
+    metadata: ArtifactBuildMetadata,
+    *,
+    artifact_filename: str = DEFAULT_ARTIFACT_FILENAME,
+    sidecar_filename: str = DEFAULT_SIDECAR_FILENAME,
+    additional_json_files: Mapping[str, Mapping[str, Any]] | None = None,
+    source_manifest_path: Path = DEFAULT_SOURCE_MANIFEST_PATH,
+    grid_contract_path: Path = DEFAULT_GRID_CONTRACT_PATH,
+) -> Mapping[str, Any]:
+    """Validate and atomically publish a new immutable artifact bundle directory."""
+    bundle = Path(bundle_path)
+    if bundle.exists():
+        raise SoilArtifactError("Immutable artifact bundle already exists.")
+    for filename, suffix, label in (
+        (artifact_filename, ".nc", "artifact"),
+        (sidecar_filename, ".json", "sidecar"),
+    ):
+        if Path(filename).name != filename or not filename.endswith(suffix):
+            raise SoilArtifactError(
+                f"Bundle {label} filename must be a basename ending in {suffix}."
+            )
+    if artifact_filename == sidecar_filename:
+        raise SoilArtifactError("Bundle artifact and sidecar filenames must differ.")
+    additional_documents = dict(additional_json_files or {})
+    reserved_names = {artifact_filename, sidecar_filename}
+    for filename, document in additional_documents.items():
+        if (
+            not isinstance(filename, str)
+            or Path(filename).name != filename
+            or not filename.endswith(".json")
+            or filename in reserved_names
+            or not isinstance(document, Mapping)
+        ):
+            raise SoilArtifactError(
+                "Additional bundle files must use unique JSON basenames and mapping documents."
+            )
+
+    bundle.parent.mkdir(parents=True, exist_ok=True)
+    staging = Path(
+        tempfile.mkdtemp(
+            prefix=f".{bundle.name}.", suffix=".staging", dir=bundle.parent
+        )
+    )
+    try:
+        document = write_soil_artifact(
+            staging / artifact_filename,
+            staging / sidecar_filename,
+            data,
+            metadata,
+            source_manifest_path=source_manifest_path,
+            grid_contract_path=grid_contract_path,
+        )
+        additional_file_records = {}
+        for filename in sorted(additional_documents):
+            additional_path = staging / filename
+            additional_path.write_text(
+                json.dumps(
+                    additional_documents[filename],
+                    sort_keys=True,
+                    indent=2,
+                    ensure_ascii=False,
+                )
+                + "\n",
+                encoding="utf-8",
+            )
+            additional_file_records[filename] = {
+                "sha256": sha256_file(additional_path),
+                "size_bytes": additional_path.stat().st_size,
+            }
+        if additional_file_records:
+            document = {
+                **document,
+                "bundle_additional_files": additional_file_records,
+            }
+            (staging / sidecar_filename).write_text(
+                json.dumps(document, sort_keys=True, indent=2) + "\n",
+                encoding="utf-8",
+            )
+        _validate_sidecar(
+            document,
+            staging / artifact_filename,
+            Path(source_manifest_path),
+            Path(grid_contract_path),
+        )
+        if bundle.exists():
+            raise SoilArtifactError("Immutable artifact bundle already exists.")
+        os.rename(staging, bundle)
+    except Exception:
+        shutil.rmtree(staging, ignore_errors=True)
+        raise
+    return document
+
+
 def load_soil_artifact(
     artifact_path: Path,
     sidecar_path: Path,
@@ -230,6 +366,7 @@ def _build_dataset(
     longitude = np.asarray(data.longitude, dtype=np.float64)
     coordinate_edges(latitude, "latitude")
     coordinate_edges(longitude, "longitude")
+    _require_approved_artifact_footprint(latitude, longitude, grid_contract)
     try:
         require_exact_coordinate_subset(
             metadata.canonical_grid.latitude, latitude, "latitude"
@@ -255,7 +392,58 @@ def _build_dataset(
     mixed_width = _array(
         data.mixed_uncertainty_width_mm, shape, "mixed uncertainty width"
     )
-    _validate_values(storage, dispersion, valid_area, coverage, full_area, mixed_width)
+    mixed_width_dispersion = _array(
+        data.mixed_uncertainty_width_mapped_prediction_sd_mm,
+        shape,
+        "mixed uncertainty width mapped prediction SD",
+    )
+    mixed_width_valid_area = _array(
+        data.mixed_uncertainty_width_valid_source_area_m2,
+        shape,
+        "mixed uncertainty width valid source area",
+    )
+    mixed_width_coverage = _array(
+        data.mixed_uncertainty_width_source_coverage_fraction,
+        shape,
+        "mixed uncertainty width source coverage",
+    )
+    des = _stack_component_mapping(data.depth_of_soil_m, shape, "depth of soil")
+    des_dispersion = _stack_component_mapping(
+        data.depth_of_soil_mapped_prediction_sd_m,
+        shape,
+        "depth of soil mapped prediction SD",
+    )
+    des_valid_area = _stack_component_mapping(
+        data.depth_of_soil_valid_source_area_m2,
+        shape,
+        "depth of soil valid source area",
+    )
+    des_coverage = _stack_component_mapping(
+        data.depth_of_soil_source_coverage_fraction,
+        shape,
+        "depth of soil source coverage",
+    )
+    des_shallow_fraction = _stack_component_mapping(
+        data.depth_of_soil_shallower_than_1m_fraction,
+        shape,
+        "depth of soil shallower-than-1m fraction",
+    )
+    _validate_values(
+        storage,
+        dispersion,
+        valid_area,
+        coverage,
+        full_area,
+        mixed_width,
+        mixed_width_dispersion,
+        mixed_width_valid_area,
+        mixed_width_coverage,
+        des,
+        des_dispersion,
+        des_valid_area,
+        des_coverage,
+        des_shallow_fraction,
+    )
 
     dataset = xr.Dataset(
         data_vars={
@@ -283,9 +471,42 @@ def _build_dataset(
                 ("latitude", "longitude"),
                 mixed_width.astype(np.float32),
             ),
+            "mixed_uncertainty_width_mapped_prediction_sd_mm": (
+                ("latitude", "longitude"),
+                mixed_width_dispersion.astype(np.float32),
+            ),
+            "mixed_uncertainty_width_valid_source_area_m2": (
+                ("latitude", "longitude"),
+                mixed_width_valid_area.astype(np.float64),
+            ),
+            "mixed_uncertainty_width_source_coverage_fraction": (
+                ("latitude", "longitude"),
+                mixed_width_coverage.astype(np.float32),
+            ),
+            "depth_of_soil_m": (
+                ("des_component", "latitude", "longitude"),
+                des.astype(np.float32),
+            ),
+            "depth_of_soil_mapped_prediction_sd_m": (
+                ("des_component", "latitude", "longitude"),
+                des_dispersion.astype(np.float32),
+            ),
+            "depth_of_soil_valid_source_area_m2": (
+                ("des_component", "latitude", "longitude"),
+                des_valid_area.astype(np.float64),
+            ),
+            "depth_of_soil_source_coverage_fraction": (
+                ("des_component", "latitude", "longitude"),
+                des_coverage.astype(np.float32),
+            ),
+            "depth_of_soil_shallower_than_1m_fraction": (
+                ("des_component", "latitude", "longitude"),
+                des_shallow_fraction.astype(np.float32),
+            ),
         },
         coords={
             "storage_case": np.asarray(STORAGE_CASES, dtype=object),
+            "des_component": np.asarray(DES_COMPONENTS, dtype=object),
             "latitude": latitude,
             "longitude": longitude,
         },
@@ -318,6 +539,8 @@ def _build_dataset(
             "source_manifest_json": _canonical_json(source_manifest),
             "source_manifest_sha256": source_manifest_sha256,
             "storage_cases_json": _canonical_json(list(STORAGE_CASES)),
+            "storage_case_definitions_json": _canonical_json(STORAGE_CASE_DEFINITIONS),
+            "des_components_json": _canonical_json(list(DES_COMPONENTS)),
         },
     )
     dataset.latitude.attrs = {
@@ -329,6 +552,14 @@ def _build_dataset(
         "standard_name": "longitude",
         "long_name": "longitude",
         "units": "degrees_east",
+    }
+    dataset.storage_case.attrs = {
+        "long_name": "AWC and DES component combination for modelled storage",
+        "definitions_json": _canonical_json(STORAGE_CASE_DEFINITIONS),
+    }
+    dataset.des_component.attrs = {
+        "long_name": "Depth of Soil v2 prediction component",
+        "components": "EV expected value; 10 lower; 90 upper",
     }
     dataset.awc_storage_capacity_mm.attrs = {
         "long_name": "DES-capped modelled available water storage capacity",
@@ -344,6 +575,29 @@ def _build_dataset(
     dataset.mixed_uncertainty_width_mm.attrs = {
         "long_name": "provisional mixed-quantile upper minus lower storage scenario width",
         "units": "mm",
+        "interpretation": "uncertainty-width proxy, not a confidence interval",
+    }
+    dataset.mixed_uncertainty_width_mapped_prediction_sd_mm.attrs = {
+        "long_name": "area-weighted population standard deviation among mapped mixed-width predictions",
+        "units": "mm",
+    }
+    dataset.mixed_uncertainty_width_valid_source_area_m2.attrs = {"units": "m2"}
+    dataset.mixed_uncertainty_width_source_coverage_fraction.attrs = {"units": "1"}
+    dataset.depth_of_soil_m.attrs = {
+        "long_name": "modelled Depth of Soil (A and B horizons)",
+        "units": "m",
+        "interpretation": "mapped soil depth, not effective crop rooting depth",
+    }
+    dataset.depth_of_soil_mapped_prediction_sd_m.attrs = {
+        "long_name": "area-weighted population standard deviation among mapped Depth of Soil predictions",
+        "units": "m",
+    }
+    dataset.depth_of_soil_valid_source_area_m2.attrs = {"units": "m2"}
+    dataset.depth_of_soil_source_coverage_fraction.attrs = {"units": "1"}
+    dataset.depth_of_soil_shallower_than_1m_fraction.attrs = {
+        "long_name": "fraction of valid mapped DES area shallower than 1 metre",
+        "units": "1",
+        "denominator": "valid Depth of Soil source area for the corresponding DES component",
     }
     return dataset
 
@@ -391,6 +645,54 @@ def _encoding(data: SoilArtifactData) -> dict[str, dict[str, Any]]:
             "_FillValue": np.float32(np.nan),
             "chunksizes": grid_chunks,
         },
+        "mixed_uncertainty_width_mapped_prediction_sd_mm": {
+            **compressed,
+            "dtype": "float32",
+            "_FillValue": np.float32(np.nan),
+            "chunksizes": grid_chunks,
+        },
+        "mixed_uncertainty_width_valid_source_area_m2": {
+            **compressed,
+            "dtype": "float64",
+            "_FillValue": None,
+            "chunksizes": grid_chunks,
+        },
+        "mixed_uncertainty_width_source_coverage_fraction": {
+            **compressed,
+            "dtype": "float32",
+            "_FillValue": np.float32(np.nan),
+            "chunksizes": grid_chunks,
+        },
+        "depth_of_soil_m": {
+            **compressed,
+            "dtype": "float32",
+            "_FillValue": np.float32(np.nan),
+            "chunksizes": case_chunks,
+        },
+        "depth_of_soil_mapped_prediction_sd_m": {
+            **compressed,
+            "dtype": "float32",
+            "_FillValue": np.float32(np.nan),
+            "chunksizes": case_chunks,
+        },
+        "depth_of_soil_valid_source_area_m2": {
+            **compressed,
+            "dtype": "float64",
+            "_FillValue": None,
+            "chunksizes": case_chunks,
+        },
+        "depth_of_soil_source_coverage_fraction": {
+            **compressed,
+            "dtype": "float32",
+            "_FillValue": np.float32(np.nan),
+            "chunksizes": case_chunks,
+        },
+        "depth_of_soil_shallower_than_1m_fraction": {
+            **compressed,
+            "dtype": "float32",
+            "_FillValue": np.float32(np.nan),
+            "chunksizes": case_chunks,
+        },
         "latitude": {"dtype": "float64", "_FillValue": None},
         "longitude": {"dtype": "float64", "_FillValue": None},
     }
@@ -413,6 +715,18 @@ def _validate_artifact_schema(path: Path) -> None:
                 != STORAGE_CASES
             ):
                 raise SoilArtifactError("Soil artifact storage-case ordering mismatch.")
+            if tuple(str(value) for value in dataset.des_component.values) != (
+                DES_COMPONENTS
+            ):
+                raise SoilArtifactError(
+                    "Soil artifact DES-component ordering mismatch."
+                )
+            if dataset.attrs.get("storage_case_definitions_json") != _canonical_json(
+                STORAGE_CASE_DEFINITIONS
+            ):
+                raise SoilArtifactError(
+                    "Soil artifact storage-case definitions mismatch."
+                )
             expected_case_dimensions = ("storage_case", "latitude", "longitude")
             for name in (
                 "awc_storage_capacity_mm",
@@ -424,8 +738,26 @@ def _validate_artifact_schema(path: Path) -> None:
                     raise SoilArtifactError(
                         f"Soil artifact variable {name!r} dimensions mismatch."
                     )
-            for name in ("full_cell_area_m2", "mixed_uncertainty_width_mm"):
+            for name in (
+                "full_cell_area_m2",
+                "mixed_uncertainty_width_mm",
+                "mixed_uncertainty_width_mapped_prediction_sd_mm",
+                "mixed_uncertainty_width_valid_source_area_m2",
+                "mixed_uncertainty_width_source_coverage_fraction",
+            ):
                 if dataset[name].dims != ("latitude", "longitude"):
+                    raise SoilArtifactError(
+                        f"Soil artifact variable {name!r} dimensions mismatch."
+                    )
+            expected_des_dimensions = ("des_component", "latitude", "longitude")
+            for name in (
+                "depth_of_soil_m",
+                "depth_of_soil_mapped_prediction_sd_m",
+                "depth_of_soil_valid_source_area_m2",
+                "depth_of_soil_source_coverage_fraction",
+                "depth_of_soil_shallower_than_1m_fraction",
+            ):
+                if dataset[name].dims != expected_des_dimensions:
                     raise SoilArtifactError(
                         f"Soil artifact variable {name!r} dimensions mismatch."
                     )
@@ -436,6 +768,14 @@ def _validate_artifact_schema(path: Path) -> None:
                 "source_coverage_fraction": np.dtype("float32"),
                 "full_cell_area_m2": np.dtype("float64"),
                 "mixed_uncertainty_width_mm": np.dtype("float32"),
+                "mixed_uncertainty_width_mapped_prediction_sd_mm": np.dtype("float32"),
+                "mixed_uncertainty_width_valid_source_area_m2": np.dtype("float64"),
+                "mixed_uncertainty_width_source_coverage_fraction": np.dtype("float32"),
+                "depth_of_soil_m": np.dtype("float32"),
+                "depth_of_soil_mapped_prediction_sd_m": np.dtype("float32"),
+                "depth_of_soil_valid_source_area_m2": np.dtype("float64"),
+                "depth_of_soil_source_coverage_fraction": np.dtype("float32"),
+                "depth_of_soil_shallower_than_1m_fraction": np.dtype("float32"),
                 "latitude": np.dtype("float64"),
                 "longitude": np.dtype("float64"),
             }
@@ -468,6 +808,32 @@ def _validate_sidecar(
         raise SoilArtifactError("Soil artifact size does not match its sidecar.")
     if sidecar.get("artifact_sha256") != sha256_file(artifact_path):
         raise SoilArtifactError("Soil artifact SHA-256 does not match its sidecar.")
+
+    additional_files = sidecar.get("bundle_additional_files", {})
+    if not isinstance(additional_files, dict):
+        raise SoilArtifactError("Soil artifact additional-file records are malformed.")
+    for filename, record in additional_files.items():
+        if (
+            not isinstance(filename, str)
+            or Path(filename).name != filename
+            or not isinstance(record, dict)
+        ):
+            raise SoilArtifactError(
+                "Soil artifact additional-file record is malformed."
+            )
+        additional_path = artifact_path.parent / filename
+        if not additional_path.is_file():
+            raise SoilArtifactError(
+                f"Soil artifact bundle file is missing: {filename}."
+            )
+        if record.get("size_bytes") != additional_path.stat().st_size:
+            raise SoilArtifactError(
+                f"Soil artifact bundle file size mismatch: {filename}."
+            )
+        if record.get("sha256") != sha256_file(additional_path):
+            raise SoilArtifactError(
+                f"Soil artifact bundle file SHA-256 mismatch: {filename}."
+            )
 
     source_manifest, source_bytes = _load_json_object(source_manifest_path)
     if sidecar.get("source_manifest_id") != source_manifest.get("manifest_id"):
@@ -529,6 +895,21 @@ def _stack_case_mapping(
     )
 
 
+def _stack_component_mapping(
+    mapping: Mapping[str, np.ndarray], shape: tuple[int, int], label: str
+) -> np.ndarray:
+    if set(mapping) != set(DES_COMPONENTS):
+        raise SoilArtifactError(
+            f"{label} components must match the ordered DES components."
+        )
+    return np.stack(
+        [
+            _array(mapping[component], shape, f"{label} {component}")
+            for component in DES_COMPONENTS
+        ]
+    )
+
+
 def _array(values: np.ndarray, shape: tuple[int, int], label: str) -> np.ndarray:
     array = np.asarray(values, dtype=np.float64)
     if array.shape != shape:
@@ -543,26 +924,82 @@ def _validate_values(
     coverage: np.ndarray,
     full_area: np.ndarray,
     mixed_width: np.ndarray,
+    mixed_width_dispersion: np.ndarray,
+    mixed_width_valid_area: np.ndarray,
+    mixed_width_coverage: np.ndarray,
+    des: np.ndarray,
+    des_dispersion: np.ndarray,
+    des_valid_area: np.ndarray,
+    des_coverage: np.ndarray,
+    des_shallow_fraction: np.ndarray,
 ) -> None:
     for label, values in (
         ("storage", storage),
         ("mapped prediction SD", dispersion),
         ("mixed uncertainty width", mixed_width),
+        ("mixed uncertainty width mapped prediction SD", mixed_width_dispersion),
+        ("depth of soil", des),
+        ("depth of soil mapped prediction SD", des_dispersion),
     ):
         if np.any(np.isinf(values)) or np.any(values[np.isfinite(values)] < 0):
             raise SoilArtifactError(f"{label} contains an invalid value.")
-    if not np.all(np.isfinite(valid_area)) or np.any(valid_area < 0):
-        raise SoilArtifactError("Valid source area must be finite and non-negative.")
     if not np.all(np.isfinite(full_area)) or np.any(full_area <= 0):
         raise SoilArtifactError("Full cell area must be finite and positive.")
-    if (
-        not np.all(np.isfinite(coverage))
-        or np.any(coverage < 0)
-        or np.any(coverage > 1)
+    for label, values in (
+        ("storage valid source area", valid_area),
+        ("mixed uncertainty width valid source area", mixed_width_valid_area),
+        ("depth of soil valid source area", des_valid_area),
     ):
-        raise SoilArtifactError("Source coverage must be finite and within [0, 1].")
-    if np.any(valid_area > full_area[np.newaxis, :, :] * (1.0 + 1e-12)):
-        raise SoilArtifactError("Valid source area exceeds full cell area.")
+        if not np.all(np.isfinite(values)) or np.any(values < 0):
+            raise SoilArtifactError(f"{label} must be finite and non-negative.")
+        expanded_full_area = (
+            full_area[np.newaxis, :, :] if values.ndim == 3 else full_area
+        )
+        if np.any(values > expanded_full_area * (1.0 + 1e-12)):
+            raise SoilArtifactError(f"{label} exceeds full cell area.")
+    for label, values in (
+        ("storage source coverage", coverage),
+        ("mixed uncertainty width source coverage", mixed_width_coverage),
+        ("depth of soil source coverage", des_coverage),
+    ):
+        if not np.all(np.isfinite(values)) or np.any(values < 0) or np.any(values > 1):
+            raise SoilArtifactError(f"{label} must be finite and within [0, 1].")
+    finite_shallow = des_shallow_fraction[np.isfinite(des_shallow_fraction)]
+    if (
+        np.any(np.isinf(des_shallow_fraction))
+        or np.any(finite_shallow < 0)
+        or np.any(finite_shallow > 1)
+    ):
+        raise SoilArtifactError(
+            "Depth of soil shallow fraction must be within [0, 1] or NaN."
+        )
+
+
+def _require_approved_artifact_footprint(
+    latitude: np.ndarray,
+    longitude: np.ndarray,
+    grid_contract: Mapping[str, Any],
+) -> None:
+    coordinate_contract = grid_contract.get("coordinate_contract")
+    if not isinstance(coordinate_contract, dict):
+        raise SoilArtifactError("Canonical-grid coordinate contract is malformed.")
+    footprint = coordinate_contract.get("approved_swaz_artifact_footprint")
+    if not isinstance(footprint, dict):
+        raise SoilArtifactError("Approved SWAZ artifact footprint is missing.")
+    expected = {
+        "latitude_first": float(latitude[0]),
+        "latitude_last": float(latitude[-1]),
+        "latitude_length": int(latitude.size),
+        "longitude_first": float(longitude[0]),
+        "longitude_last": float(longitude[-1]),
+        "longitude_length": int(longitude.size),
+        "cell_count": int(latitude.size * longitude.size),
+    }
+    for key, actual in expected.items():
+        if footprint.get(key) != actual:
+            raise SoilArtifactError(
+                "Artifact coordinates do not match the approved SWAZ footprint."
+            )
 
 
 def _source_layer_ids(source_manifest: Mapping[str, Any]) -> tuple[str, ...]:

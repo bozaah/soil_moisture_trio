@@ -94,9 +94,19 @@ uv run python scripts/render_bulletin.py \
 
 ## Phase 5 SLGA Development Utilities
 
-The operational `main.py` CLI has no SLGA flags. It does not retrieve, rebuild, or load soil layers. The bounded authenticated pilot at `scripts/slga_tiled_pilot.py` is development-only, requires an exact locally supplied canonical AWRA-L grid input plus `TERN_API_KEY`, enforces a target-cell safety limit, and writes diagnostic JSON rather than an approved artifact.
+The operational `main.py` CLI has no SLGA flags. It does not retrieve, rebuild, or load soil layers. The bounded authenticated pilot at `scripts/slga_tiled_pilot.py` is development-only, requires an exact locally supplied canonical AWRA-L grid input plus `TERN_API_KEY`, enforces a target-cell safety limit, and writes diagnostic JSON rather than an approved artifact. Its diagnostics separate logical reads, STAC and COG attempts/outcomes, completed COG window fetches, cache hits/misses/evictions/current/peak bytes, per-tile elapsed time, and process peak RSS. Rasterio/GDAL HTTP transferred-byte counts are explicitly reported as unavailable rather than estimated.
 
-Do not use the pilot as an operational build command. Full-WA artifact creation remains gated by larger coastal/nodata profiling, schema and DES-presentation review, and artifact distribution/version approval. See [`slga-builder-contract.md`](slga-builder-contract.md).
+Do not use the pilot as an operational build command. The explicit reviewed builder is:
+
+```bash
+uv run python -m scripts.slga_build_swaz_artifact \
+  --awral-grid-input data/source_inputs/sm_pct_2025.nc \
+  --max-runtime-seconds 21600
+```
+
+It is hard-scoped to the exact 156×186 SWAZ footprint, 10-row resumable stripes, 10×10 target tiles, and a 256 MiB cache. It requires a clean Git worktree so the sidecar identifies exact committed code. Completed stripe directories are atomic, checksum-verified, credential-free, and contract-bound; incompatible resume state fails. The six-hour limit is checked between completed stripes, which remain for the next `--resume` invocation. After exact assembly, the command publishes a fail-if-present repo-local immutable bundle containing NetCDF, sidecar, and checksummed `build_report.json`; checkpoints are removed only after verified publication unless `--keep-checkpoints` is set.
+
+The command is implemented but must not be run until external soil-science and distribution review explicitly approves the SWAZ review build. A full-WA static artifact will not be built in this phase. See [`slga-builder-contract.md`](slga-builder-contract.md).
 
 ## Environment
 

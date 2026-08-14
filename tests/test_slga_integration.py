@@ -31,6 +31,7 @@ def test_ev_storage_uses_thickness_and_caps_des_at_one_metre():
     result = integrate_storage(awc, des)
 
     np.testing.assert_allclose(result.storage_mm["ev"], [[100.0, 100.0]])
+    np.testing.assert_allclose(result.des_metres["EV"], [[1.2, 2.75]])
     np.testing.assert_allclose(result.represented_depth_mm["EV"], [[1000.0, 1000.0]])
 
 

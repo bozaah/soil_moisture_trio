@@ -49,6 +49,31 @@ class RasterWindowData:
     retrieved_at: str
 
 
+@dataclass(frozen=True)
+class ReaderMetrics:
+    """Credential-free cumulative counters and current/peak cache state."""
+
+    cache_hits: int
+    cache_misses: int
+    cache_evictions: int
+    cache_entries: int
+    cache_current_bytes: int
+    cache_peak_bytes: int
+    cog_access_attempts: int
+    cog_access_successes: int
+    cog_retryable_failures: int
+    cog_terminal_failures: int
+    cog_exhausted_failures: int
+    cog_window_fetch_attempts: int
+    cog_window_fetches: int
+    stac_request_attempts: int
+    stac_request_successes: int
+    stac_retryable_failures: int
+    stac_terminal_failures: int
+    stac_exhausted_failures: int
+    stac_validation_failures: int
+
+
 class AuthenticatedCogReader:
     """Read validated full-resolution windows from the pinned TERN COGs."""
 
@@ -82,13 +107,55 @@ class AuthenticatedCogReader:
             tuple[str, int, int, int, int], tuple[np.ndarray, str]
         ] = OrderedDict()
         self._window_cache_bytes = 0
+        self._window_cache_peak_bytes = 0
         self._window_cache_hits = 0
         self._window_cache_misses = 0
+        self._window_cache_evictions = 0
+        self._cog_access_attempts = 0
+        self._cog_access_successes = 0
+        self._cog_retryable_failures = 0
+        self._cog_terminal_failures = 0
+        self._cog_exhausted_failures = 0
+        self._cog_window_fetch_attempts = 0
         self._cog_window_fetches = 0
+        self._stac_request_attempts = 0
+        self._stac_request_successes = 0
+        self._stac_retryable_failures = 0
+        self._stac_terminal_failures = 0
+        self._stac_exhausted_failures = 0
+        self._stac_validation_failures = 0
+
+    @property
+    def metrics(self) -> ReaderMetrics:
+        return ReaderMetrics(
+            cache_hits=self._window_cache_hits,
+            cache_misses=self._window_cache_misses,
+            cache_evictions=self._window_cache_evictions,
+            cache_entries=len(self._window_cache),
+            cache_current_bytes=self._window_cache_bytes,
+            cache_peak_bytes=self._window_cache_peak_bytes,
+            cog_access_attempts=self._cog_access_attempts,
+            cog_access_successes=self._cog_access_successes,
+            cog_retryable_failures=self._cog_retryable_failures,
+            cog_terminal_failures=self._cog_terminal_failures,
+            cog_exhausted_failures=self._cog_exhausted_failures,
+            cog_window_fetch_attempts=self._cog_window_fetch_attempts,
+            cog_window_fetches=self._cog_window_fetches,
+            stac_request_attempts=self._stac_request_attempts,
+            stac_request_successes=self._stac_request_successes,
+            stac_retryable_failures=self._stac_retryable_failures,
+            stac_terminal_failures=self._stac_terminal_failures,
+            stac_exhausted_failures=self._stac_exhausted_failures,
+            stac_validation_failures=self._stac_validation_failures,
+        )
 
     @property
     def window_cache_bytes(self) -> int:
         return self._window_cache_bytes
+
+    @property
+    def window_cache_peak_bytes(self) -> int:
+        return self._window_cache_peak_bytes
 
     @property
     def window_cache_hits(self) -> int:
@@ -97,6 +164,10 @@ class AuthenticatedCogReader:
     @property
     def window_cache_misses(self) -> int:
         return self._window_cache_misses
+
+    @property
+    def window_cache_evictions(self) -> int:
+        return self._window_cache_evictions
 
     @property
     def cog_window_fetches(self) -> int:
@@ -120,24 +191,31 @@ class AuthenticatedCogReader:
         }
         last_retryable_error: Exception | None = None
         for attempt in range(self.attempts):
+            self._cog_access_attempts += 1
             try:
                 with rasterio.Env(**gdal_options):
                     with rasterio.open(layer.url) as dataset:
                         validate_cog_dataset(dataset, self.catalogue, layer)
                         window = expanded_window_for_bounds(dataset, checked_bounds)
+                        self._cog_window_fetch_attempts += 1
                         masked = dataset.read(1, window=window, masked=True)
+                        self._cog_window_fetches += 1
                         values = _normalise_values(masked, layer)
                         transform = dataset.window_transform(window)
                         crs = dataset.crs
+                self._cog_access_successes += 1
                 break
             except SourceValidationError:
+                self._cog_terminal_failures += 1
                 raise
             except (RasterioIOError, OSError) as exc:
                 # Do not include low-level GDAL text: environment options can contain credentials.
+                self._cog_retryable_failures += 1
                 last_retryable_error = exc
                 if attempt < self.attempts - 1:
                     time.sleep(RETRY_DELAYS_SECONDS[attempt])
         else:
+            self._cog_exhausted_failures += 1
             raise SourceAccessError(
                 f"Failed to read approved COG {product_id} after {self.attempts} attempts."
             ) from last_retryable_error
@@ -187,6 +265,7 @@ class AuthenticatedCogReader:
         }
         last_retryable_error: Exception | None = None
         for attempt in range(self.attempts):
+            self._cog_access_attempts += 1
             try:
                 with rasterio.Env(**gdal_options):
                     with rasterio.open(layer.url) as dataset:
@@ -203,6 +282,7 @@ class AuthenticatedCogReader:
                             product_id, aligned, count=not cache_checked
                         )
                         if cached is None:
+                            self._cog_window_fetch_attempts += 1
                             masked = dataset.read(1, window=aligned, masked=True)
                             self._cog_window_fetches += 1
                             values = _normalise_values(masked, layer)
@@ -212,14 +292,18 @@ class AuthenticatedCogReader:
                             )
                         else:
                             values, retrieved_at = cached
+                self._cog_access_successes += 1
                 break
             except SourceValidationError:
+                self._cog_terminal_failures += 1
                 raise
             except (RasterioIOError, OSError) as exc:
+                self._cog_retryable_failures += 1
                 last_retryable_error = exc
                 if attempt < self.attempts - 1:
                     time.sleep(RETRY_DELAYS_SECONDS[attempt])
         else:
+            self._cog_exhausted_failures += 1
             raise SourceAccessError(
                 f"Failed to read approved COG {product_id} after {self.attempts} attempts."
             ) from last_retryable_error
@@ -234,6 +318,7 @@ class AuthenticatedCogReader:
         try:
             self.catalogue.validate_stac_item(layer, stac_item)
         except CatalogueError as exc:
+            self._stac_validation_failures += 1
             raise SourceValidationError(str(exc)) from exc
         self._validated_stac_ids.add(layer.product_id)
 
@@ -273,6 +358,10 @@ class AuthenticatedCogReader:
         while self._window_cache_bytes > self.window_cache_max_bytes:
             _key, (evicted, _timestamp) = self._window_cache.popitem(last=False)
             self._window_cache_bytes -= evicted.nbytes
+            self._window_cache_evictions += 1
+        self._window_cache_peak_bytes = max(
+            self._window_cache_peak_bytes, self._window_cache_bytes
+        )
 
     def _subset_cached_window(
         self,
@@ -317,23 +406,30 @@ class AuthenticatedCogReader:
         )
         last_retryable_error: Exception | None = None
         for attempt in range(self.attempts):
+            self._stac_request_attempts += 1
             try:
                 with urlopen(request, timeout=self.timeout_seconds) as response:
                     payload = json.load(response)
                 if not isinstance(payload, Mapping):
+                    self._stac_terminal_failures += 1
                     raise SourceValidationError(
                         f"Malformed STAC response for {layer.product_id}: expected an object."
                     )
+                self._stac_request_successes += 1
                 return payload
             except HTTPError as exc:
                 if exc.code not in RETRYABLE_HTTP_CODES:
+                    self._stac_terminal_failures += 1
                     raise SourceAccessError(
                         f"STAC request failed for {layer.product_id} with HTTP {exc.code}."
                     ) from exc
+                self._stac_retryable_failures += 1
                 last_retryable_error = exc
             except URLError as exc:
+                self._stac_retryable_failures += 1
                 last_retryable_error = exc
             except (json.JSONDecodeError, UnicodeDecodeError) as exc:
+                self._stac_terminal_failures += 1
                 raise SourceValidationError(
                     f"Malformed STAC JSON for {layer.product_id}."
                 ) from exc
@@ -341,6 +437,7 @@ class AuthenticatedCogReader:
             if attempt < self.attempts - 1:
                 time.sleep(RETRY_DELAYS_SECONDS[attempt])
 
+        self._stac_exhausted_failures += 1
         raise SourceAccessError(
             f"STAC request failed for {layer.product_id} after {self.attempts} attempts."
         ) from last_retryable_error

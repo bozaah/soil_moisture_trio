@@ -1,12 +1,18 @@
+import io
+import json
+from contextlib import nullcontext
 from pathlib import Path
+from urllib.error import URLError
 
 import numpy as np
 import pytest
 from rasterio import Affine
 from rasterio.crs import CRS
 from rasterio.coords import BoundingBox
+from rasterio.errors import RasterioIOError
 from rasterio.windows import Window
 
+import src.soil_moisture_trio.slga.cog as cog_module
 from src.soil_moisture_trio.slga.catalogue import load_source_catalogue
 from src.soil_moisture_trio.slga.cog import (
     AuthenticatedCogReader,
@@ -39,11 +45,25 @@ class FakeDataset:
         self.descriptions = (description or layer.product_id,)
         self._tags = {"UNITS": layer.product.units, "AREA_OR_POINT": "Area"}
 
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *_args):
+        return False
+
     def overviews(self, _band):
         return [2, 4]
 
     def tags(self):
         return self._tags
+
+    def read(self, _band, *, window, masked):
+        assert masked is True
+        shape = (int(window.height), int(window.width))
+        return np.ma.array(np.ones(shape, dtype=np.float64), mask=False)
+
+    def window_transform(self, window):
+        return self.transform * Affine.translation(window.col_off, window.row_off)
 
 
 def test_missing_credentials_fail_before_network_access():
@@ -119,6 +139,94 @@ def test_bounded_window_cache_reuses_values_and_evicts_lru():
 
     assert reader._cached_window("first", first) is None
     assert reader._cached_window("second", second) is not None
+    metrics = reader.metrics
+    assert metrics.cache_hits == 2
+    assert metrics.cache_misses == 1
+    assert metrics.cache_evictions == 1
+    assert metrics.cache_entries == 1
+    assert metrics.cache_current_bytes == 32
+    assert metrics.cache_peak_bytes == 32
+
+
+def test_stac_retry_and_exhaustion_metrics_are_deterministic(monkeypatch):
+    layer = next(iter(CATALOGUE.layers.values()))
+    reader = AuthenticatedCogReader(
+        CATALOGUE,
+        environment={"TERN_API_KEY": "test-only"},
+        attempts=2,
+    )
+    responses = iter(
+        [
+            URLError("temporary"),
+            io.BytesIO(json.dumps({"type": "Feature"}).encode("utf-8")),
+        ]
+    )
+
+    def retry_once(*_args, **_kwargs):
+        response = next(responses)
+        if isinstance(response, Exception):
+            raise response
+        return response
+
+    monkeypatch.setattr(cog_module, "urlopen", retry_once)
+    monkeypatch.setattr(cog_module.time, "sleep", lambda _delay: None)
+
+    assert reader._fetch_stac(layer, "test-only") == {"type": "Feature"}
+    metrics = reader.metrics
+    assert metrics.stac_request_attempts == 2
+    assert metrics.stac_request_successes == 1
+    assert metrics.stac_retryable_failures == 1
+    assert metrics.stac_terminal_failures == 0
+    assert metrics.stac_exhausted_failures == 0
+
+    exhausted = AuthenticatedCogReader(
+        CATALOGUE,
+        environment={"TERN_API_KEY": "test-only"},
+        attempts=2,
+    )
+    monkeypatch.setattr(
+        cog_module,
+        "urlopen",
+        lambda *_args, **_kwargs: (_ for _ in ()).throw(URLError("temporary")),
+    )
+    with pytest.raises(SourceAccessError, match="after 2 attempts"):
+        exhausted._fetch_stac(layer, "test-only")
+    assert exhausted.metrics.stac_request_attempts == 2
+    assert exhausted.metrics.stac_retryable_failures == 2
+    assert exhausted.metrics.stac_exhausted_failures == 1
+
+
+def test_cog_retry_metrics_distinguish_access_from_window_fetch(monkeypatch):
+    layer = next(iter(CATALOGUE.layers.values()))
+    reader = AuthenticatedCogReader(
+        CATALOGUE,
+        environment={"TERN_API_KEY": "test-only"},
+        attempts=2,
+    )
+    monkeypatch.setattr(reader, "_validate_stac_once", lambda *_args: None)
+    monkeypatch.setattr(cog_module.rasterio, "Env", lambda **_kwargs: nullcontext())
+    opens = iter([RasterioIOError("temporary"), FakeDataset(layer)])
+
+    def retry_once(_url):
+        opened = next(opens)
+        if isinstance(opened, Exception):
+            raise opened
+        return opened
+
+    monkeypatch.setattr(cog_module.rasterio, "open", retry_once)
+    monkeypatch.setattr(cog_module.time, "sleep", lambda _delay: None)
+
+    result = reader.read_pixel_window(layer.product_id, Window(0, 0, 2, 2))
+
+    assert result.values.shape == (2, 2)
+    metrics = reader.metrics
+    assert metrics.cache_misses == 1
+    assert metrics.cog_access_attempts == 2
+    assert metrics.cog_access_successes == 1
+    assert metrics.cog_retryable_failures == 1
+    assert metrics.cog_exhausted_failures == 0
+    assert metrics.cog_window_fetch_attempts == 1
+    assert metrics.cog_window_fetches == 1
 
 
 def test_cog_validation_allows_only_stale_des_nat_description():

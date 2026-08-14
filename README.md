@@ -63,9 +63,9 @@ Full pipeline detail: [docs/architecture.md](docs/architecture.md) | Methodology
 
 ## Phase 5 Development Status
 
-A separate, non-operational SLGA prototype now supports pinned AWC v2 and Depth of Soil v2 source validation, authenticated bounded COG reads, DES-capped storage-capacity integration, EPSG:3577 fractional-overlap harmonisation, tiled processing, and provisional static-artifact I/O. It has passed deterministic tests and a bounded authenticated 3×3 SWAZ pilot.
+A separate, non-operational SLGA prototype now supports pinned AWC v2 and Depth of Soil v2 source validation, authenticated bounded COG reads, DES-capped storage-capacity integration, EPSG:3577 fractional-overlap harmonisation, tiled processing, and reviewed v1-candidate static-artifact I/O with direct DES context and immutable bundle publication. It has passed deterministic tests, a bounded authenticated 3×3 inland SWAZ multi-tile pilot, and a 5×5 Albany coastal/nodata pilot with exact warm-cache equality.
 
-No approved full-WA soil artifact or soil-stratified risk summary exists yet. The operational drought pipeline, risk formula, thresholds, valid mask, and outputs remain unchanged and do not fetch or load SLGA data. See [docs/slga-builder-contract.md](docs/slga-builder-contract.md) and [docs/backlog.md](docs/backlog.md).
+The first static soil artifact is now scoped to the SWAZ buffered operational rectangle (29,016 canonical AWRA-L cells), not full WA. It has not yet been built or approved, and no soil-stratified risk summary exists. The operational drought pipeline, risk formula, thresholds, valid mask, and outputs remain unchanged and do not fetch or load SLGA data. See [docs/slga-builder-contract.md](docs/slga-builder-contract.md) and [docs/backlog.md](docs/backlog.md).
 
 ## Project Structure
 

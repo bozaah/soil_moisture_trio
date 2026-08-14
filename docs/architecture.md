@@ -31,9 +31,11 @@ main.py
 | `src/soil_moisture_trio/data_sources.py` | `WeatherToolsSiloLoader` wrapper, bbox-scoped cache directories, regridding |
 | `src/soil_moisture_trio/risk.py` | Stress index calculation, `RiskLevel`, NetCDF/JSON persistence |
 | `src/soil_moisture_trio/plot.py` | Risk PNG and diagnostics PNG generation |
-| `src/soil_moisture_trio/slga/` | Phase 5 static-soil catalogue, COG access, integration, harmonisation, tiling, and provisional artifact I/O; not called by the operational risk pipeline |
+| `src/soil_moisture_trio/slga/` | Phase 5 static-soil catalogue, COG access, integration, harmonisation, tiling, and reviewed v1-candidate artifact I/O; not called by the operational risk pipeline |
 | `scripts/render_bulletin.py` | Markdown bulletin rendering from summary JSON |
-| `scripts/slga_tiled_pilot.py` | Development-only bounded authenticated SLGA pilot; does not write or approve a production artifact |
+| `src/soil_moisture_trio/slga/checkpoint.py` | Credential-free immutable stripe checkpoints and exact stripe assembly for resumable SWAZ builds |
+| `scripts/slga_tiled_pilot.py` | Development-only bounded authenticated SLGA pilot with retry/cache/tile/RSS diagnostics; does not write or approve a production artifact |
+| `scripts/slga_build_swaz_artifact.py` | Explicit clean-commit-only SWAZ builder: 10-row resumable stripes, 10×10 tiles, 256 MiB cache, reviewed immutable bundle publication |
 
 ## Phase 5 Static-Soil Path — Prototype Only
 
@@ -47,7 +49,9 @@ explicit pinned AWRA-L v7 grid file
   -> native-grid DES-capped AWC storage integration
   -> bounded EPSG:3577 fractional-overlap harmonisation
   -> SoilArtifactData
-  -> provisional atomic NetCDF + deterministic sidecar writer
+  -> atomic checksum-bound 10-row stripe checkpoints
+  -> exact full-SWAZ stripe assembly
+  -> immutable staged v1-candidate NetCDF + sidecar + build-report bundle
 
 future operational soil context:
 approved immutable artifact
@@ -56,7 +60,7 @@ approved immutable artifact
   -> separate soil-summary mask and grouped summaries
 ```
 
-The build foundations and writer/loader are implemented and deterministically tested, and a live 3×3 SWAZ tiled pilot has exercised all 18 sources. No approved full-WA artifact has been built. Normal drought runs never retrieve, rebuild, or load SLGA data, and no soil grouping or minimum coverage threshold has been approved.
+The build foundations and writer/loader are implemented and deterministically tested. A live 3×3 inland SWAZ multi-tile pilot and Albany coastal/nodata pilots up to 10×10 cells have exercised all 18 sources. Albany found 0–1 source coverage; tested reverse orders were exact and warm-cache-only. A controlled 100-cell comparison selected 10×10 target tiles with a 256 MiB cache as the provisional SWAZ production candidate, subject to final build planning and review. The first production artifact is scoped to the exact 156×186 (29,016-cell) canonical AWRA-L rectangle covering the approved SWAZ boundary’s +0.1° operational bbox; it will not be a full-WA artifact. No approved artifact has been built. Normal drought runs never retrieve, rebuild, or load SLGA data, and no soil grouping or minimum coverage threshold has been approved.
 
 The invariant for later integration is:
 

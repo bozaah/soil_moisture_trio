@@ -4,6 +4,127 @@ All notable changes per sprint/iteration. Format: `## [sprint] YYYY-MM-DD — Ti
 
 ---
 
+## [Phase 5] 2026-08-14 — Resumable SWAZ production command
+
+### Added
+
+- `slga.checkpoint` — credential-free compressed stripe arrays, deterministic manifests, SHA-256/identity verification, immutable atomic stripe directories, and exact contiguous stripe assembly
+- `scripts/slga_build_swaz_artifact.py` — hard-scoped 156×186 SWAZ builder using 10-row resumable stripes, 10×10 target tiles, 256 MiB cache, and a default six-hour between-stripe work limit
+- clean Git commit enforcement, contract-bound resume rejection, aggregate build metrics, and a checksummed `build_report.json` inside the immutable review bundle
+- deterministic tests for checkpoint round-trip/assembly, identity/coordinate/checksum drift, failed-promotion cleanup, clean-worktree enforcement, runtime-stop messaging, and unknown checkpoint entries
+
+### Decided
+
+- repo-local ignored immutable bundle is the first review target; checkpoints are removed only after verified publication unless explicitly retained
+- audited STAC/COG attempt/fetch/retry/cache/runtime/memory counters are sufficient; actual HTTP bytes remain explicitly unavailable
+- publisher STAC multihashes plus strict source identity/profile checks are sufficient for Release 1; full COG downloads/hashes are not required
+- the command is implemented but no SWAZ artifact was run or approved; external soil-science and distribution authority review remain gates
+
+## [Phase 5] 2026-08-14 — Reviewed artifact schema and immutable bundle implementation
+
+### Added
+
+- direct mapped DES EV/10/90 means, mapped dispersion, valid area/coverage, and valid-DES-area shallow-than-1 m fractions
+- mixed uncertainty-width mapped dispersion, valid area, and coverage so its intersection support is auditable
+- canonical machine-readable storage-case component/interpretation definitions in NetCDF metadata
+- immutable `write_soil_artifact_bundle()` staging and fail-if-present publication; rollback selects prior untouched bundles
+- exact approved SWAZ footprint enforcement for artifact writing and deterministic schema/promotion failure tests
+
+### Decided
+
+- retain existing float dtypes, zlib level 4, and 64×64 chunk design
+- retain artifact version label `v1` as requested, while keeping release approval explicitly separate from implementation status
+- no production artifact was built and operational risk behavior remains unchanged
+
+## [Phase 5] 2026-08-14 — Artifact schema and promotion review
+
+### Reviewed
+
+- retained the seven explicit storage scenarios, current float32/float64 choices, zlib level 4, and 64×64 chunk design as reasonable for the 156×186 SWAZ artifact
+- identified missing direct DES EV/10/90, DES support/dispersion, and shallow-profile presentation as a Release 1 blocker
+- identified that the standalone mixed-width proxy drops its own harmonised valid area, coverage, and mapped dispersion
+- identified unsafe replacement semantics: a sidecar-promotion failure after replacing an existing artifact can destroy the prior release
+
+### Required before `v1`
+
+- approve and add direct DES/shallow-profile variables, mixed-width support variables, and machine-readable storage-case definitions
+- publish to immutable fail-if-present versioned bundles and roll back by selecting a prior bundle, not overwriting files
+- complete soil-science terminology/scenario review and distribution approval; no artifact was built or promoted
+
+## [Phase 5] 2026-08-14 — Albany 100-cell production-tile comparison
+
+### Verified
+
+- the approved 10×10 Albany coastal window (100 cells) ran as four 5×5 tiles and as one 10×10 tile, each with a 256 MiB cache and exact warm verification
+- four 5×5 tiles: 57.95 seconds cold, 72 logical reads/fetches, 144 MiB peak cache, ~402 MiB peak RSS, 16.58-second cache-only reverse pass
+- one 10×10 tile: 56.09 seconds cold, 18 logical reads/fetches, 81 MiB peak cache, ~532 MiB peak RSS, 16.68-second cache-only repeat
+- both runs had 18 successful STAC validations, no retries/failures/evictions, identical coverage/storage summaries (97/100 finite cells; coverage 0–1, mean 0.8526), and exact warm equality
+- diagnostic outputs: `outputs/slga_b25b_albany_coastal_10x10_tiles_5x5_profiled.json` and `outputs/slga_b25b_albany_coastal_10x10_single_tile_profiled.json` (ignored by Git)
+
+### Decision
+
+- 10×10 target tiles with a 256 MiB cache are the provisional SWAZ production candidate; compared with 5×5 tiles, source reads fell fourfold and retained cache fell 63 MiB at the cost of ~130 MiB more measured peak RSS
+- the 156×186 SWAZ rectangle implies 304 target tiles and 5,472 logical source reads at this setting before exact-window cache reuse; this is a deterministic work count, not a runtime or HTTP-transfer estimate
+- whole-build failure/restart planning, final schema/DES presentation, distribution/version promotion, and artifact approval remain gates
+
+## [Phase 5] 2026-08-14 — Albany coastal multi-tile comparison
+
+### Verified
+
+- the same 25 Albany cells reran as nine 2×2 target tiles with a 256 MiB cache and 10-minute limit
+- cold execution completed in 41.69 seconds: 162 logical reads resolved to 54 cache hits and 108 successful COG accesses/window fetches; all 18 STAC requests succeeded; no retries, terminal/exhausted failures, or evictions occurred
+- peak source cache was 108 MiB and process-lifetime peak RSS was ~306 MiB; coverage and storage summaries matched the single-tile run
+- reverse tile order was exactly equal and cache-only in 4.04 seconds with 162 hits and no STAC/COG access
+- diagnostic output: `outputs/slga_b25b_albany_coastal_5x5_multitile_2x2_profiled.json` (ignored by Git)
+
+### Decision
+
+- 256 MiB is retained as the cache baseline for the next bounded profile; 2×2 tiles are correctness-safe but not a production recommendation because they increased logical reads ninefold
+- a larger target-window tile/stripe profile remains required before SWAZ production settings or runtime estimates are approved
+
+## [Phase 5] 2026-08-14 — Albany coastal/nodata profiling pilot
+
+### Verified
+
+- approved 5×5 Albany window (25 cells; latitude −34.90…−35.10, longitude 117.80…118.00) completed cold in 37.67 seconds using one target tile and a 256 MiB cache
+- all 18 STAC requests, COG accesses, and COG window fetches succeeded without retries, terminal/exhausted failures, or cache evictions; retained/peak source cache was 36 MiB and process-lifetime peak RSS was ~288 MiB
+- all seven storage cases were finite in 24/25 cells; source coverage ranged 0–1 with mean 0.6477, exercising expected coastal zero/partial support
+- the warm repeat was exactly equal in 4.15 seconds with 18 cache hits and no STAC or COG access
+- diagnostic output: `outputs/slga_b25b_albany_coastal_5x5_profiled.json` (ignored by Git); actual GDAL HTTP transferred bytes remain unavailable
+
+### Limitations
+
+- the user-selected single-tile layout minimized requests but could not test multi-tile seams, order, or cache pressure; reversing one tile is the same processing sequence
+- no SWAZ-wide runtime extrapolation or production tile/cache recommendation is accepted from this pilot alone; no artifact was built and risk behavior remains unchanged
+
+## [Phase 5] 2026-08-14 — B25b profiling instrumentation
+
+### Added
+
+- credential-free reader metrics separating STAC request attempts/outcomes, COG access attempts/outcomes, attempted/completed COG window fetches, and cache hits/misses/evictions/current/peak retained bytes
+- per-build before/after reader snapshots, build-local counter deltas, and deterministic per-tile elapsed/extent metrics
+- pilot reporting for platform-normalised process peak RSS and an explicit unavailable value for GDAL-level HTTP transferred bytes rather than an unsupported estimate
+- mocked tests for retry success/exhaustion, COG retry/fetch distinctions, cache eviction/peak behavior, stable per-tile timing, and RSS unit conversion
+
+### Scope boundary
+
+- no authenticated pilot was run; representative SWAZ coastal/nodata footprint, target-cell limit, tile shape, cache budget, and maximum runtime still require approval
+- no risk calculation, threshold, mask, summary, or operational output behavior changed
+
+## [Phase 5] 2026-08-14 — Static artifact scope changed to SWAZ
+
+### Changed
+
+- superseded the planned full-WA Phase 5 static soil artifact with a SWAZ-only first artifact
+- pinned the exact canonical footprint to descending latitude centres −27.45…−35.20 and ascending longitude centres 114.05…123.30, shape 156×186 (29,016 cells), covering the approved boundary’s +0.1° operational bbox
+- renamed the provisional production artifact to `slga_awc_des_awral_swaz_0p05deg_v1.nc` and aligned active architecture, methodology, source, CLI, evidence, builder-contract, backlog, and local-data documentation
+- retained the boundary polygon as a later runtime mask; static soil coverage and area continue to use full AWRA-L cell denominators
+
+### Scope boundary
+
+- no full-WA static SLGA artifact will be built in this phase; future rangelands or multi-region support requires a separately reviewed scope and artifact version
+- no artifact was built and no risk calculation, threshold, mask, summary, or operational output behavior changed
+
 ## [Phase 5] 2026-08-12 — B25b documentation synchronization
 
 ### Changed

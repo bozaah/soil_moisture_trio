@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import math
+import time
 from dataclasses import dataclass
 from typing import Callable, Mapping, Sequence
 
@@ -27,7 +28,19 @@ class SourceWindow:
         return (self.row_stop - self.row_start, self.col_stop - self.col_start)
 
 
+@dataclass(frozen=True)
+class TileMetrics:
+    tile_index: int
+    target_row_start: int
+    target_row_stop: int
+    target_col_start: int
+    target_col_stop: int
+    source_window: SourceWindow
+    elapsed_seconds: float
+
+
 SourceWindowReader = Callable[[SourceWindow], Mapping[str, np.ndarray]]
+TileMetricsCallback = Callable[[TileMetrics], None]
 
 
 def harmonise_fractional_overlap_tiled(
@@ -41,6 +54,7 @@ def harmonise_fractional_overlap_tiled(
     *,
     target_tile_shape: tuple[int, int],
     tile_order: str = "row-major",
+    tile_metrics_callback: TileMetricsCallback | None = None,
 ) -> HarmonisedValues:
     """Harmonise bounded source windows while assigning every target cell once."""
     names = tuple(variable_names)
@@ -66,6 +80,8 @@ def harmonise_fractional_overlap_tiled(
         )
     if tile_order not in {"row-major", "reverse"}:
         raise HarmonisationError("Tile order must be 'row-major' or 'reverse'.")
+    if tile_metrics_callback is not None and not callable(tile_metrics_callback):
+        raise HarmonisationError("Tile metrics callback must be callable.")
 
     latitude = np.asarray(target_latitude, dtype=np.float64)
     longitude = np.asarray(target_longitude, dtype=np.float64)
@@ -85,7 +101,8 @@ def harmonise_fractional_overlap_tiled(
     full_area = np.zeros(target_shape, dtype=np.float64)
     assigned = np.zeros(target_shape, dtype=bool)
 
-    for latitude_slice, longitude_slice in tile_slices:
+    for tile_index, (latitude_slice, longitude_slice) in enumerate(tile_slices):
+        tile_started = time.perf_counter()
         if np.any(assigned[latitude_slice, longitude_slice]):
             raise HarmonisationError(
                 "A target cell was assigned to more than one tile."
@@ -139,6 +156,23 @@ def harmonise_fractional_overlap_tiled(
             )
         full_area[latitude_slice, longitude_slice] = tile_result.full_cell_area_m2
         assigned[latitude_slice, longitude_slice] = True
+        tile_elapsed = time.perf_counter() - tile_started
+        if not math.isfinite(tile_elapsed) or tile_elapsed < 0:
+            raise HarmonisationError(
+                "Tile elapsed time must be finite and non-negative."
+            )
+        if tile_metrics_callback is not None:
+            tile_metrics_callback(
+                TileMetrics(
+                    tile_index=tile_index,
+                    target_row_start=latitude_slice.start,
+                    target_row_stop=latitude_slice.stop,
+                    target_col_start=longitude_slice.start,
+                    target_col_stop=longitude_slice.stop,
+                    source_window=window,
+                    elapsed_seconds=tile_elapsed,
+                )
+            )
 
     if not np.all(assigned):
         raise HarmonisationError("Tiled harmonisation left an unassigned target cell.")
