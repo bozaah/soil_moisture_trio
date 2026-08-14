@@ -4,6 +4,36 @@ All notable changes per sprint/iteration. Format: `## [sprint] YYYY-MM-DD — Ti
 
 ---
 
+## [Phase 5] 2026-08-12 — Canonical AWRA-L grid and deterministic artifact foundations
+
+### Added
+
+- `manifests/awral_v7_grid_source_v1.json` — pins the completed 2025 Bureau-produced AWRA-L v7 operational decile file at NCI by exact path, 312,193,677-byte size, independent SHA-256, schema, dimensions, coordinate metadata, orientation, and coordinate-value hashes
+- `slga.grid` — validates an explicit local canonical NetCDF byte-for-byte and preserves exact float64 source coordinates; no implicit download or coordinate regeneration
+- `slga.artifact` — provisional compressed v1 NetCDF writer, close-then-validate atomic promotion, deterministic sidecar, full provenance, and credential-free checksum/schema-verifying exact-subset loader
+- `slga.tiling` — bounded target-tile/source-window orchestration with one-native-pixel halos and global source offsets so geometry is invariant across tile boundaries
+- `slga.builder` / `scripts/slga_tiled_pilot.py` — exact 18-source tiled retrieve/integrate/harmonise orchestration, block-aligned bounded LRU caching, pilot safety limits, metrics, and opposite-order equality verification
+- deterministic tests for missing/corrupt/mismatched grid inputs, artifact schema/version/checksum/source-contract drift, interrupted writes, exact runtime subsets, credential-free loading, UTC timestamp compatibility, reproducibility, bounded cache/window behavior, no overlap, full 18-source orchestration, and tile shape/order invariance
+
+### Decided
+
+- the canonical source is the exact operational Bureau/NCI AWRA-L v7 lineage, not the third-party Zenodo republication; the stable remote URL alone is not considered immutable, so only bytes matching the tracked independent SHA-256 are accepted
+- the builder will receive the large canonical source explicitly, while runtime loading depends only on the approved static artifact, sidecar, and tracked compact contracts
+- the full-WA artifact footprint is the exact 441×341 AWRA-L subset latitude −13…−35 and longitude 112…129; the implemented schema remains unchanged and provisional during pilots
+
+### Verified
+
+- the independently downloaded NCI input validates as 681 descending latitude centres (−10 to −44) × 841 ascending longitude centres (112 to 154) at nominal 0.05° spacing
+- tiled and untiled harmonisation are exactly equal across multiple tile shapes and forward/reverse processing, including variable-specific nodata and no-overlap windows; complete valid area reconciles to target-cell area without cross-tile duplication
+- an authenticated 3×3-cell SWAZ pilot split into six tiles issued 108 logical reads, required 72 COG fetches with 36 cache hits, and completed an instrumented run in 58.36 seconds at ~282 MB peak RSS and ~84.9 MB retained cache; all seven cases were finite with 0.9861–1.0 coverage, and a reverse-order pass used 108 cache hits, no COG fetches, and was exactly equal in 1.40 seconds
+- `uv run pytest -q` → `77 passed, 1 skipped`; live-reader `+00:00` retrieval timestamps are accepted as timezone-aware UTC by the artifact writer; no production full-WA artifact was built and no risk modules, calculations, thresholds, masks, summaries, or outputs were changed
+
+### Remaining gates
+
+- approve final v1 variables/chunking and DES uncertainty presentation after pilot inspection
+- profile larger representative coastal/nodata tiles with measured HTTP transfer/retry/cache behavior and full-WA memory/runtime estimates
+- decide artifact distribution/version promotion, then perform and review the explicit full-WA build
+
 ## [Phase 5] 2026-08-12 — Deterministic B25b contract and small-window prototype
 
 ### Added

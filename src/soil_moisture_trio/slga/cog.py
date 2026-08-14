@@ -5,6 +5,7 @@ import json
 import math
 import os
 import time
+from collections import OrderedDict
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from typing import Any, Mapping
@@ -21,6 +22,7 @@ from rasterio.windows import Window, from_bounds
 from src.soil_moisture_trio.slga.catalogue import (
     TRANSFORM_ABS_TOLERANCE,
     CatalogueError,
+    CommonProfile,
     LayerSpec,
     SourceCatalogue,
 )
@@ -57,15 +59,48 @@ class AuthenticatedCogReader:
         environment: Mapping[str, str] | None = None,
         attempts: int = 3,
         timeout_seconds: float = 30.0,
+        window_cache_max_bytes: int = 256 * 1024 * 1024,
     ) -> None:
         if attempts < 1 or attempts > 3:
             raise ValueError("attempts must be between 1 and 3.")
         if not math.isfinite(timeout_seconds) or timeout_seconds <= 0:
             raise ValueError("timeout_seconds must be finite and positive.")
+        if (
+            not isinstance(window_cache_max_bytes, int)
+            or isinstance(window_cache_max_bytes, bool)
+            or window_cache_max_bytes < 0
+        ):
+            raise ValueError("window_cache_max_bytes must be a non-negative integer.")
         self.catalogue = catalogue
         self.environment = os.environ if environment is None else environment
         self.attempts = attempts
         self.timeout_seconds = timeout_seconds
+        self.window_cache_max_bytes = window_cache_max_bytes
+        self._validated_stac_ids: set[str] = set()
+        self._block_shapes: dict[str, tuple[int, int]] = {}
+        self._window_cache: OrderedDict[
+            tuple[str, int, int, int, int], tuple[np.ndarray, str]
+        ] = OrderedDict()
+        self._window_cache_bytes = 0
+        self._window_cache_hits = 0
+        self._window_cache_misses = 0
+        self._cog_window_fetches = 0
+
+    @property
+    def window_cache_bytes(self) -> int:
+        return self._window_cache_bytes
+
+    @property
+    def window_cache_hits(self) -> int:
+        return self._window_cache_hits
+
+    @property
+    def window_cache_misses(self) -> int:
+        return self._window_cache_misses
+
+    @property
+    def cog_window_fetches(self) -> int:
+        return self._cog_window_fetches
 
     def read_window(
         self,
@@ -75,11 +110,7 @@ class AuthenticatedCogReader:
         layer = self.catalogue.require(product_id)
         key = self._require_api_key()
         checked_bounds = validate_bounds(bounds)
-        stac_item = self._fetch_stac(layer, key)
-        try:
-            self.catalogue.validate_stac_item(layer, stac_item)
-        except CatalogueError as exc:
-            raise SourceValidationError(str(exc)) from exc
+        self._validate_stac_once(layer, key)
 
         gdal_options = {
             "GDAL_HTTP_AUTH": "BASIC",
@@ -118,6 +149,154 @@ class AuthenticatedCogReader:
             crs=crs,
             window=window,
             retrieved_at=datetime.now(timezone.utc).isoformat(),
+        )
+
+    def read_pixel_window(
+        self,
+        product_id: str,
+        window: Window,
+    ) -> RasterWindowData:
+        """Read an exact full-resolution pixel window through a bounded block cache."""
+        layer = self.catalogue.require(product_id)
+        requested = validate_pixel_window(window, self.catalogue.profile)
+        key = self._require_api_key()
+        self._validate_stac_once(layer, key)
+
+        block_shape = self._block_shapes.get(product_id)
+        cache_checked = False
+        if block_shape is not None:
+            aligned = _block_aligned_window(
+                requested,
+                block_shape,
+                self.catalogue.profile.height,
+                self.catalogue.profile.width,
+            )
+            cached = self._cached_window(product_id, aligned)
+            cache_checked = True
+            if cached is not None:
+                values, retrieved_at = cached
+                return self._subset_cached_window(
+                    layer, requested, aligned, values, retrieved_at
+                )
+
+        gdal_options = {
+            "GDAL_HTTP_AUTH": "BASIC",
+            "GDAL_HTTP_USERPWD": f"apikey:{key}",
+            "GDAL_DISABLE_READDIR_ON_OPEN": "EMPTY_DIR",
+            "CPL_VSIL_CURL_ALLOWED_EXTENSIONS": ".tif",
+        }
+        last_retryable_error: Exception | None = None
+        for attempt in range(self.attempts):
+            try:
+                with rasterio.Env(**gdal_options):
+                    with rasterio.open(layer.url) as dataset:
+                        validate_cog_dataset(dataset, self.catalogue, layer)
+                        block_shape = dataset.block_shapes[0]
+                        self._block_shapes[product_id] = block_shape
+                        aligned = _block_aligned_window(
+                            requested,
+                            block_shape,
+                            dataset.height,
+                            dataset.width,
+                        )
+                        cached = self._cached_window(
+                            product_id, aligned, count=not cache_checked
+                        )
+                        if cached is None:
+                            masked = dataset.read(1, window=aligned, masked=True)
+                            self._cog_window_fetches += 1
+                            values = _normalise_values(masked, layer)
+                            retrieved_at = datetime.now(timezone.utc).isoformat()
+                            self._cache_window(
+                                product_id, aligned, values, retrieved_at
+                            )
+                        else:
+                            values, retrieved_at = cached
+                break
+            except SourceValidationError:
+                raise
+            except (RasterioIOError, OSError) as exc:
+                last_retryable_error = exc
+                if attempt < self.attempts - 1:
+                    time.sleep(RETRY_DELAYS_SECONDS[attempt])
+        else:
+            raise SourceAccessError(
+                f"Failed to read approved COG {product_id} after {self.attempts} attempts."
+            ) from last_retryable_error
+        return self._subset_cached_window(
+            layer, requested, aligned, values, retrieved_at
+        )
+
+    def _validate_stac_once(self, layer: LayerSpec, key: str) -> None:
+        if layer.product_id in self._validated_stac_ids:
+            return
+        stac_item = self._fetch_stac(layer, key)
+        try:
+            self.catalogue.validate_stac_item(layer, stac_item)
+        except CatalogueError as exc:
+            raise SourceValidationError(str(exc)) from exc
+        self._validated_stac_ids.add(layer.product_id)
+
+    def _cached_window(
+        self, product_id: str, window: Window, *, count: bool = True
+    ) -> tuple[np.ndarray, str] | None:
+        cache_key = _window_cache_key(product_id, window)
+        cached = self._window_cache.get(cache_key)
+        if count:
+            if cached is None:
+                self._window_cache_misses += 1
+            else:
+                self._window_cache_hits += 1
+        if cached is not None:
+            self._window_cache.move_to_end(cache_key)
+        return cached
+
+    def _cache_window(
+        self,
+        product_id: str,
+        window: Window,
+        values: np.ndarray,
+        retrieved_at: str,
+    ) -> None:
+        if (
+            self.window_cache_max_bytes == 0
+            or values.nbytes > self.window_cache_max_bytes
+        ):
+            return
+        cache_key = _window_cache_key(product_id, window)
+        existing = self._window_cache.pop(cache_key, None)
+        if existing is not None:
+            self._window_cache_bytes -= existing[0].nbytes
+        cached_values = np.asarray(values, dtype=np.float64).copy()
+        self._window_cache[cache_key] = (cached_values, retrieved_at)
+        self._window_cache_bytes += cached_values.nbytes
+        while self._window_cache_bytes > self.window_cache_max_bytes:
+            _key, (evicted, _timestamp) = self._window_cache.popitem(last=False)
+            self._window_cache_bytes -= evicted.nbytes
+
+    def _subset_cached_window(
+        self,
+        layer: LayerSpec,
+        requested: Window,
+        aligned: Window,
+        values: np.ndarray,
+        retrieved_at: str,
+    ) -> RasterWindowData:
+        row_start = int(requested.row_off - aligned.row_off)
+        col_start = int(requested.col_off - aligned.col_off)
+        row_stop = row_start + int(requested.height)
+        col_stop = col_start + int(requested.width)
+        subset = values[row_start:row_stop, col_start:col_stop].copy()
+        transform = Affine(*self.catalogue.profile.transform) * Affine.translation(
+            requested.col_off, requested.row_off
+        )
+        return RasterWindowData(
+            layer=layer,
+            values=subset,
+            transform=transform,
+            crs=CRS.from_string(self.catalogue.profile.crs),
+            window=requested,
+            retrieved_at=retrieved_at,
         )
 
     def _require_api_key(self) -> str:
@@ -181,6 +360,61 @@ def validate_bounds(
     if west >= east or south >= north:
         raise ValueError("bounds must satisfy west < east and south < north.")
     return west, south, east, north
+
+
+def validate_pixel_window(window: Window, profile: CommonProfile) -> Window:
+    if not isinstance(window, Window):
+        raise ValueError("window must be a rasterio Window.")
+    values = (window.col_off, window.row_off, window.width, window.height)
+    if not all(math.isfinite(float(value)) for value in values):
+        raise ValueError("Pixel window must contain finite values.")
+    if not all(float(value).is_integer() for value in values):
+        raise ValueError("Pixel window offsets and shape must be integral.")
+    col_off, row_off, width, height = (int(value) for value in values)
+    if col_off < 0 or row_off < 0 or width <= 0 or height <= 0:
+        raise ValueError(
+            "Pixel window must have non-negative offsets and positive shape."
+        )
+    if col_off + width > profile.width or row_off + height > profile.height:
+        raise ValueError("Pixel window exceeds the pinned source grid.")
+    return Window(col_off=col_off, row_off=row_off, width=width, height=height)
+
+
+def _block_aligned_window(
+    requested: Window,
+    block_shape: tuple[int, int],
+    source_height: int,
+    source_width: int,
+) -> Window:
+    block_height, block_width = block_shape
+    row_start = (int(requested.row_off) // block_height) * block_height
+    col_start = (int(requested.col_off) // block_width) * block_width
+    row_stop = min(
+        source_height,
+        math.ceil((requested.row_off + requested.height) / block_height) * block_height,
+    )
+    col_stop = min(
+        source_width,
+        math.ceil((requested.col_off + requested.width) / block_width) * block_width,
+    )
+    return Window(
+        col_off=col_start,
+        row_off=row_start,
+        width=col_stop - col_start,
+        height=row_stop - row_start,
+    )
+
+
+def _window_cache_key(
+    product_id: str, window: Window
+) -> tuple[str, int, int, int, int]:
+    return (
+        product_id,
+        int(window.row_off),
+        int(window.col_off),
+        int(window.height),
+        int(window.width),
+    )
 
 
 def expanded_window_for_bounds(

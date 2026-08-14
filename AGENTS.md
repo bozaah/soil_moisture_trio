@@ -99,6 +99,7 @@ All outputs (`.nc`, `_summary.json`, risk PNG, `stress_diagnostics.png`) land in
 - [sessions/2026-08-12-phase5-slga-planning.md](sessions/2026-08-12-phase5-slga-planning.md) — Phase 5 planning: backlog priorities, SLGApy assessment, and project-owned SLGA module decision
 - [sessions/2026-08-12-phase5-slga-manifest-verification.md](sessions/2026-08-12-phase5-slga-manifest-verification.md) — authenticated AWC/DES source verification, corrected DES 10/90 components, and pinned source manifest
 - [sessions/2026-08-12-phase5-slga-b25b-prototype.md](sessions/2026-08-12-phase5-slga-b25b-prototype.md) — deterministic B25b contract, narrow SLGA modules, and verified small-window AWC+DES prototype
+- [sessions/2026-08-12-phase5-slga-canonical-grid-artifact.md](sessions/2026-08-12-phase5-slga-canonical-grid-artifact.md) — pinned AWRA-L v7 grid input, deterministic artifact writer/loader, and tiled invariance proof
 
 ## First Principles
 
@@ -119,3 +120,10 @@ Before writing any code:
 - Decision-support outputs must use risk thresholds from `ClassifierConfig`.
 - Check `docs/backlog.md` for known issues before changing thresholds or model parameters.
 - SILO end dates must be ≤ today − 2 days to avoid missing-tile shape errors (SILO data lag).
+
+## Git safety — hard rule
+
+* Git access is read-only for the assistant. Never run commands that modify the working tree through Git, the index, commits, refs, branches, tags, stashes, remotes, or repository configuration.
+* Prohibited commands include, but are not limited to: `git add`, `git commit`, `git push`, `git pull`, `git merge`, `git rebase`, `git reset`, `git restore`, `git checkout`, `git switch`, `git cherry-pick`, `git revert`, `git stash`, `git clean`, `git mv`, `git rm`, `git tag`, and mutating `git config` operations.
+* Read-only commands such as `git status`, `git diff`, `git log`, `git show`, `git blame`, `git grep`, `git rev-parse`, and `git ls-files` are allowed.
+* When a Git write is needed, report the suggested command for the user to run; do not execute it, including as part of milestone completion.

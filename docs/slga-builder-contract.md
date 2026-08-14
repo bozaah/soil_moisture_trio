@@ -1,6 +1,6 @@
 # B25b SLGA-to-AWRA-L builder contract
 
-Status: prototype contract for review. This contract governs the deterministic B25b small-window implementation. It does **not** approve a full-WA artifact, soil-stratification bands, or operational integration.
+Status: implemented prototype contract for review. Canonical-grid validation, the provisional artifact writer/runtime loader, and bounded target-cell tiling are implemented and tested on local synthetic/small-window data. This contract does **not** approve a full-WA artifact, soil-stratification bands, or operational integration.
 
 ## 1. Scope and invariants
 
@@ -86,7 +86,11 @@ The mixed width is upper minus lower and is an uncertainty-width proxy, not a co
 
 ## 6. Canonical AWRA-L grid
 
-The full-WA canonical coordinates must come from one explicitly supplied, immutable AWRA-L NetCDF coordinate input. The eventual approved contract must pin its public source URL, AWRA-L product/version, coordinate variable names, byte size, and SHA-256. The builder does not silently download that input. The current local monthly WA subset lacks sufficient provenance metadata and is not declared authoritative by this contract.
+The canonical coordinates come from one explicitly supplied AWRA-L NetCDF input pinned in `manifests/awral_v7_grid_source_v1.json`: the completed 2025 Bureau of Meteorology AWRA-L v7 historical-v1 daily root-zone soil-moisture decile file hosted by NCI (`sm_pct_2025.nc`). The contract records the public FileServer and OPeNDAP URLs, collection/product/version, `latitude`/`longitude` coordinate names, 312,193,677-byte size, independently computed SHA-256 `353af96c7826111a54e189120ed6e1dcb6f9d2a1a0d6966c286aae4f4429095b`, coordinate attributes, dimensions, endpoints, orientation, and normalised float64 coordinate hashes. The remote annual object is not assumed immutable: only an explicit local byte copy matching the pinned filename, size, and SHA-256 is accepted. The builder never silently downloads it. The current local monthly WA subset remains non-authoritative because it lacks sufficient provenance metadata.
+
+The Zenodo record cited in the evidence review corroborates the 681×841 coordinate grid but is not canonical: it is a third-party republication and its record metadata does not identify AWRA-L v7. The NCI source is the exact operational product lineage used by this project.
+
+The approved full-WA artifact footprint is the inclusive exact canonical subset with latitude centres −13 through −35 in source-descending order and longitude centres 112 through 129 in source-ascending order: 441×341 = 150,381 cells. These are the documented full-WA operational bounds. Selection is exact and contiguous; bounding values are not rounded or tolerance-matched.
 
 Coordinates are one-dimensional finite float64 cell centres. Latitude may arrive descending and longitude ascending; their original values and orientation are persisted. Each axis must be strictly monotonic, unique, and regularly spaced. Nominal spacing is 0.05° and is accepted only when every step is within absolute tolerance `1e-10°` of the median and the median is within `1e-10°` of 0.05°. No coordinate is rounded or regenerated.
 
@@ -94,7 +98,7 @@ Interior cell edges are adjacent-centre midpoints. Exterior edges are extrapolat
 
 Runtime loading accepts only a contiguous ordered subset of persisted coordinate values. Matching is exact after dtype conversion to float64 (`np.array_equal`); nearest-neighbour, tolerance matching, coordinate rounding, and re-harmonisation are forbidden. Missing, reordered, duplicated, or off-grid coordinates fail.
 
-The exact canonical source/version remains a review gate before a full-WA build. Synthetic coordinates may be used by the small-window prototype and tests.
+The pinned source and approved footprint remain review gates for final promotion, but their identities are now explicit and implemented. Synthetic coordinates may be used by the small-window prototype and tests.
 
 ## 7. Fractional-overlap harmonisation
 
@@ -114,9 +118,13 @@ Coverage is variable-specific; common nodata footprints must not be assumed. Flo
 
 Regional or coastal polygons do not change the static full-cell denominator. They are applied only by later grouped-summary logic.
 
-The prototype overlap engine is correctness-first and limited to small windows. Full-WA performance and tiling must be reviewed before artifact production without changing these numerical rules.
+The original overlap engine remains correctness-first and limited to small windows. `slga.tiling` partitions target cells into disjoint tiles, derives a one-native-pixel-halo source window for each tile, and delegates source loading through a bounded reader callback. Global source row/column offsets are carried into geometry construction so source vertices and target-edge splitting are identical regardless of tile boundaries. `slga.builder` supplies the callback by reading all 18 exact common-grid windows, integrating them natively, and returning the seven cases plus mixed width. `AuthenticatedCogReader` aligns reads to internal COG blocks and retains them in a bounded in-memory LRU cache. Tests prove exact numerical equality with the untiled engine across multiple tile shapes and forward/reverse tile processing, including variable-specific nodata and no-overlap windows. Each target cell is assigned once; source-pixel overlap fractions may legitimately contribute to adjacent target cells but are not duplicated within a target-cell accumulation.
+
+A live 3×3 SWAZ pilot split into six 1×2 tiles issued 108 logical layer-window reads. The instrumented run required 72 COG window fetches and reused 36 cached windows, completed in 58.36 seconds (fresh-run range 44.66–71.02 seconds), retained ~84.9 MB of cache, and reported ~282 MB peak RSS on macOS. A reverse-order pass from the same cache used 108 cache hits, made no COG fetches, completed in 1.40 seconds, and every artifact array was exactly equal. This validates bounded orchestration and real-source tile-order invariance at tiny scale only. Production tile/stripe shape, byte-level HTTP transfer instrumentation, finer cache-block reuse, coastal/nodata profiling, and full-WA performance remain review gates.
 
 ## 8. Artifact schema and deterministic writing
+
+`slga.artifact` implements the following provisional schema with atomic temporary writes, close-then-validate, compression/chunking, complete embedded source/grid contract JSON, post-close SHA-256, and deterministic sidecar JSON. The user approved keeping this schema unchanged and provisional for the tiled pilots. It has been exercised only with tiny synthetic artifact data; no approved production artifact exists.
 
 Provisional artifact path:
 
@@ -145,7 +153,7 @@ Writes use a temporary file in the destination directory, validate the closed fi
 
 ## 9. Runtime loader contract
 
-The runtime loader:
+The credential-free `slga.artifact.load_soil_artifact()` implementation:
 
 1. requires an explicit approved artifact path and sidecar;
 2. verifies artifact version, filename, size, SHA-256, schema, source-manifest identity, and required metadata before returning data;
@@ -175,11 +183,11 @@ Source nodata, target-cell partial coverage, and zero valid overlap are expected
 
 The B25b prototype is valid only for a tiny deterministic window where all requested COGs pass pinned identity/profile checks and source arrays share the native grid. It demonstrates window retrieval, native integration, and fractional-overlap behaviour—not full-Australia completeness, full-WA performance, paddock accuracy, scientific fitness, or approved soil bands.
 
-Before a full-WA artifact build, review and pin:
+Before a full-WA artifact build, review and approve:
 
-- the authoritative canonical AWRA-L coordinate source/version and immutable grid checksum;
-- final artifact variables/schema/chunking after inspecting prototype outputs;
-- scalable tiling/performance while preserving numerical rules;
+- the now-pinned authoritative AWRA-L v7 grid-source contract, independently computed input checksum, and approved 441×341 operational-bbox footprint;
+- final artifact variables/schema/chunking after inspecting pilot outputs;
+- production tile/stripe size, HTTP transfer instrumentation, COG-block cache/reuse, coastal/nodata behavior, and full-WA memory/performance while preserving the now-tested tile-invariance rules;
 - builder cache policy and whether independent full-object source checksums are required;
 - DES uncertainty presentation;
 - external soil-science fitness and terminology review.

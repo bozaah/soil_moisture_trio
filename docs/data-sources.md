@@ -28,6 +28,18 @@ A local WA monthly decile subset may be used for calibration and diagnostics:
 - Use: reference analysis and threshold sanity checks, not routine operational loading
 - Version control: excluded because it is approximately 793 MB; see [`data/README.md`](../data/README.md)
 
+### Canonical Static-Soil Grid Input
+
+The explicit Phase 5 SLGA artifact builder uses the completed 2025 Bureau-produced AWRA-L v7 daily `sm_pct` decile file at NCI as its authoritative coordinate input. `manifests/awral_v7_grid_source_v1.json` pins:
+
+- filename `sm_pct_2025.nc` and the exact operational NCI FileServer/OPeNDAP path;
+- product lineage `historical/v1/AWRALv7/processed/deciles/day`;
+- byte size `312193677` and independently computed SHA-256 `353af96c7826111a54e189120ed6e1dcb6f9d2a1a0d6966c286aae4f4429095b`;
+- float64 `latitude` (681 descending centres, −10 to −44) and `longitude` (841 ascending centres, 112 to 154), coordinate attributes, spacing, and coordinate-value hashes;
+- approved full-WA artifact subset: exact inclusive latitude −13…−35 and longitude 112…129, shape 441×341 (150,381 cells).
+
+The remote annual object is not treated as immutable merely because its URL is stable. The builder accepts only an explicitly supplied local file matching the pinned filename, size, full-file SHA-256, schema, and coordinates; it performs no implicit download. The local monthly WA calibration subset is not a substitute. Zenodo record 10689080 corroborates the grid dimensions/coordinates but is a third-party republication without explicit AWRA-L v7 identity in its record metadata, so it is not the canonical source.
+
 ## SILO Temperature and VPD
 
 SILO provides the two atmospheric inputs used by the composite stress index.

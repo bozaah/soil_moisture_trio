@@ -129,7 +129,7 @@ Convert per-layer volumetric AWC (%) to a millimetre storage total over 0–100 
 - Uncertainty: carry AWC 05/95 and DES 10/90 layers through the same DES-capped thickness calculation as lower/upper scenarios. Because their marginal quantiles differ and joint dependence is unknown, label the combined products mixed-quantile uncertainty scenarios and do not claim a profile confidence level.
 
 ## 10. Spatial harmonisation recommendation
-- **Target grid:** the explicit builder derives a canonical full-WA target grid from authoritative AWRA-L latitude/longitude coordinates, validates monotonicity, spacing and cell-centre interpretation, and persists those coordinates. Do not hardcode the continental grid. Operational runs must match and subset the persisted coordinates exactly.
+- **Target grid:** the explicit builder derives a canonical full-WA target grid from the completed 2025 Bureau-produced AWRA-L v7 operational decile file at NCI, pinned by exact URL/path, byte size, independent SHA-256, schema, and coordinate hashes in `manifests/awral_v7_grid_source_v1.json`. The approved footprint is the exact contiguous 441×341 subset with latitude centres −13 through −35 and longitude centres 112 through 129. It validates monotonicity, spacing and cell-centre interpretation and persists the source coordinate values without rounding or regeneration. The remote annual object is not assumed immutable; only an explicit local byte copy matching the contract is accepted. Operational runs must match and subset the persisted coordinates exactly.
 - **Aggregation:** area-weighted mean of the ~90 m SLGA pixels falling in each 0.05° cell. A 5 km cell contains ≈ (5000/90)² ≈ **3,000 pixels**, so the mean is well-supported where coverage is high.
 - **Projection for area computation:** perform area weighting in an equal-area CRS — **Australian Albers, EPSG:3577** — rather than in geographic degrees, because 0.05° cells vary in ground area with latitude across WA; geographic-degree "areas" would bias weights.
 - **Partial pixels:** weight edge pixels by their fractional overlap with the target cell (computed in EPSG:3577).
@@ -233,7 +233,7 @@ Convert per-layer volumetric AWC (%) to a millimetre storage total over 0–100 
 | # | Claim | Source |
 |---|---|---|
 | 1 | AWRA-L runs on a 0.05° (~5 km) grid; root-zone SM = % plant-available water in top 1 m | BoM Australian Water Outlook / AWRA-L; BoM drought pages |
-| 2 | AWRA-L grid = 681×841, −10→−44 lat, 112→154 lon, cell-centre | AWRA-L root-zone netCDF (Zenodo 10689080) |
+| 2 | AWRA-L v7 operational grid = 681×841, −10→−44 lat, 112→154 lon, interpreted cell centres | Bureau-produced NCI THREDDS `historical/v1/AWRALv7/processed/deciles/day/sm_pct_2025.nc`, independently inspected and pinned in `manifests/awral_v7_grid_source_v1.json`; Zenodo 10689080 is corroborative only |
 | 3 | AWRA-L parameterised with Ksat and proportional AWC for 0–10/10–100/100–600 cm, updated per Vaze et al. 2018 | AWRA-L v6/v7 Model Description Reports (BoM) |
 | 4 | Earlier AWRA-L AWC/Ksat derived from ASRIS Level-4 + SLGA clay mapping + Dane & Puckett (1994) PTF | AWRA-L v5 (Frost) Model Description Report |
 | 5 | BoM ranks soil moisture against historical reference (e.g. 1911–2017 deciles) | BoM drought / rainfall-deficiency pages |
@@ -271,7 +271,8 @@ Convert per-layer volumetric AWC (%) to a millimetre storage total over 0–100 
 - AWRA-L v7 Model Description Report (BoM). https://awo.bom.gov.au/assets/notes/publications/AWRA-Lv7_Model_Description_Report.pdf
 - AWRA-L v6 Model Description Report (BoM). https://awo.bom.gov.au/assets/notes/publications/AWRALv6_Model_Description_Report.pdf
 - Frost AJ et al. AWRA-L v5 Model Description Report (BoM). https://awo.bom.gov.au/assets/notes/publications/Frost__Model_Description_Report.pdf
-- AWRA-L root-zone soil moisture netCDF (Zenodo). https://zenodo.org/records/10689080
+- Bureau of Meteorology AWRA-L v7 historical-v1 daily root-zone soil-moisture decile NetCDF (NCI THREDDS; exact 2025 file identity/checksum pinned in `manifests/awral_v7_grid_source_v1.json`). https://thredds.nci.org.au/thredds/catalog/iu04/australian-water-outlook/historical/v1/AWRALv7/processed/deciles/day/catalog.html
+- AWRA-L root-zone soil moisture netCDF (Zenodo 10689080; third-party corroborative republication, not the canonical v7 source). https://zenodo.org/records/10689080
 - BoM Drought – rainfall deficiencies & water availability. https://www.bom.gov.au/climate/drought/
 - Lawes RA, Oliver YM, Robertson MJ (2009) Integrating climate and PAWC on wheat yield (framework of Wong & Asseng 2006). https://www.sciencedirect.com/science/article/abs/pii/S037842900900152X
 - GRDC Estimating Plant Available Water Capacity. https://grdc.com.au/resources-and-publications/all-publications/publications/2013/05/grdc-booklet-plantavailablewater

@@ -5,15 +5,18 @@ import pytest
 from rasterio import Affine
 from rasterio.crs import CRS
 from rasterio.coords import BoundingBox
+from rasterio.windows import Window
 
 from src.soil_moisture_trio.slga.catalogue import load_source_catalogue
 from src.soil_moisture_trio.slga.cog import (
     AuthenticatedCogReader,
     SourceAccessError,
     SourceValidationError,
+    _block_aligned_window,
     _normalise_values,
     expanded_window_for_bounds,
     validate_bounds,
+    validate_pixel_window,
     validate_cog_dataset,
 )
 
@@ -81,6 +84,41 @@ def test_window_is_expanded_one_pixel_and_non_overlap_fails():
     assert window.height == 4
     with pytest.raises(SourceValidationError, match="do not overlap"):
         expanded_window_for_bounds(dataset, (0.0, 0.0, 1.0, 1.0))
+
+
+def test_exact_pixel_window_validation_and_block_alignment():
+    requested = validate_pixel_window(Window(510, 511, 5, 3), CATALOGUE.profile)
+    aligned = _block_aligned_window(
+        requested,
+        (512, 512),
+        CATALOGUE.profile.height,
+        CATALOGUE.profile.width,
+    )
+
+    assert aligned == Window(0, 0, 1024, 1024)
+    with pytest.raises(ValueError, match="integral"):
+        validate_pixel_window(Window(0.5, 0, 1, 1), CATALOGUE.profile)
+    with pytest.raises(ValueError, match="exceeds"):
+        validate_pixel_window(
+            Window(CATALOGUE.profile.width - 1, 0, 2, 1), CATALOGUE.profile
+        )
+
+
+def test_bounded_window_cache_reuses_values_and_evicts_lru():
+    reader = AuthenticatedCogReader(
+        CATALOGUE,
+        environment={"TERN_API_KEY": "test-only"},
+        window_cache_max_bytes=32,
+    )
+    first = Window(0, 0, 2, 2)
+    second = Window(2, 0, 2, 2)
+    reader._cache_window("first", first, np.ones((2, 2)), "t1")
+    assert reader._cached_window("first", first) is not None
+
+    reader._cache_window("second", second, np.ones((2, 2)), "t2")
+
+    assert reader._cached_window("first", first) is None
+    assert reader._cached_window("second", second) is not None
 
 
 def test_cog_validation_allows_only_stale_des_nat_description():

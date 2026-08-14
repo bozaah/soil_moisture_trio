@@ -77,6 +77,12 @@ def harmonise_fractional_overlap(
     source_crs: CRS | str,
     target_latitude: np.ndarray,
     target_longitude: np.ndarray,
+    *,
+    source_grid_transform: Affine | None = None,
+    source_window_row_offset: int = 0,
+    source_window_col_offset: int = 0,
+    target_latitude_edges: np.ndarray | None = None,
+    target_longitude_edges: np.ndarray | None = None,
 ) -> HarmonisedValues:
     """Area-weight continuous native-grid values onto a tiny AWRA-L target window."""
     if not values:
@@ -101,6 +107,30 @@ def harmonise_fractional_overlap(
         raise HarmonisationError(
             "Source spacing exceeds the pinned B25b geometry limit."
         )
+    if (
+        not isinstance(source_window_row_offset, int)
+        or isinstance(source_window_row_offset, bool)
+        or source_window_row_offset < 0
+        or not isinstance(source_window_col_offset, int)
+        or isinstance(source_window_col_offset, bool)
+        or source_window_col_offset < 0
+    ):
+        raise HarmonisationError("Source-window offsets must be non-negative integers.")
+    grid_transform = source_grid_transform or source_transform
+    if not isinstance(grid_transform, Affine):
+        raise HarmonisationError("source_grid_transform must be an affine transform.")
+    expected_window_transform = grid_transform * Affine.translation(
+        source_window_col_offset, source_window_row_offset
+    )
+    if not np.allclose(
+        tuple(source_transform)[:6],
+        tuple(expected_window_transform)[:6],
+        rtol=0.0,
+        atol=1e-12,
+    ):
+        raise HarmonisationError(
+            "Source-window transform and offsets do not align with the global source grid."
+        )
 
     arrays = {
         name: np.asarray(array, dtype=np.float64) for name, array in values.items()
@@ -119,11 +149,21 @@ def harmonise_fractional_overlap(
 
     latitude = np.asarray(target_latitude, dtype=np.float64)
     longitude = np.asarray(target_longitude, dtype=np.float64)
-    latitude_edges = coordinate_edges(latitude, "latitude")
-    longitude_edges = coordinate_edges(longitude, "longitude")
+    latitude_edges = _validated_target_edges(
+        latitude, target_latitude_edges, "latitude"
+    )
+    longitude_edges = _validated_target_edges(
+        longitude, target_longitude_edges, "longitude"
+    )
 
     transformer = Transformer.from_crs(SOURCE_CRS, AREA_CRS, always_xy=True)
-    source_polygons = _source_pixel_polygons(first_shape, source_transform, transformer)
+    source_polygons = _source_pixel_polygons(
+        first_shape,
+        grid_transform,
+        transformer,
+        row_offset=source_window_row_offset,
+        col_offset=source_window_col_offset,
+    )
     tree = STRtree(source_polygons)
 
     target_shape = (latitude.size, longitude.size)
@@ -143,7 +183,7 @@ def harmonise_fractional_overlap(
             west = min(longitude_edges[lon_index], longitude_edges[lon_index + 1])
             east = max(longitude_edges[lon_index], longitude_edges[lon_index + 1])
             target_geographic = _target_geographic_polygon(
-                west, south, east, north, source_transform
+                west, south, east, north, grid_transform
             )
             target = transform_geometry(transformer.transform, target_geographic)
             target_area = float(target.area)
@@ -222,6 +262,44 @@ def harmonise_fractional_overlap(
     )
 
 
+def _validated_target_edges(
+    centres: np.ndarray,
+    supplied_edges: np.ndarray | None,
+    axis_name: str,
+) -> np.ndarray:
+    if supplied_edges is None:
+        return coordinate_edges(centres, axis_name)
+    edges = np.asarray(supplied_edges, dtype=np.float64)
+    if centres.ndim != 1 or centres.size == 0:
+        raise HarmonisationError(
+            f"{axis_name} centres must be a non-empty one-dimensional array."
+        )
+    if edges.ndim != 1 or edges.size != centres.size + 1:
+        raise HarmonisationError(
+            f"Supplied {axis_name} edges must have one more value than the centres."
+        )
+    if not np.all(np.isfinite(centres)) or not np.all(np.isfinite(edges)):
+        raise HarmonisationError(f"Supplied {axis_name} centres/edges must be finite.")
+    midpoints = (edges[:-1] + edges[1:]) / 2.0
+    if not np.allclose(centres, midpoints, rtol=0.0, atol=COORDINATE_ABS_TOLERANCE):
+        raise HarmonisationError(
+            f"Supplied {axis_name} edges are inconsistent with the centres."
+        )
+    differences = np.diff(edges)
+    if not (np.all(differences > 0) or np.all(differences < 0)):
+        raise HarmonisationError(f"Supplied {axis_name} edges must be monotonic.")
+    if not np.allclose(
+        np.abs(differences),
+        AWRA_SPACING_DEGREES,
+        rtol=0.0,
+        atol=COORDINATE_ABS_TOLERANCE,
+    ):
+        raise HarmonisationError(
+            f"Supplied {axis_name} edges must use regular AWRA-L spacing."
+        )
+    return edges
+
+
 def require_exact_coordinate_subset(
     canonical: np.ndarray,
     requested: np.ndarray,
@@ -248,13 +326,18 @@ def _source_pixel_polygons(
     shape: tuple[int, int],
     transform: Affine,
     transformer: Transformer,
+    *,
+    row_offset: int = 0,
+    col_offset: int = 0,
 ) -> list[Polygon]:
     height, width = shape
     polygons: list[Polygon] = []
     for row in range(height):
         for col in range(width):
-            west, north = transform * (col, row)
-            east, south = transform * (col + 1, row + 1)
+            global_row = row + row_offset
+            global_col = col + col_offset
+            west, north = transform * (global_col, global_row)
+            east, south = transform * (global_col + 1, global_row + 1)
             geographic = box(west, south, east, north)
             polygon = transform_geometry(transformer.transform, geographic)
             area = float(polygon.area)
