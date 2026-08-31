@@ -1,68 +1,129 @@
-## Soil Moisture Trio
+# Soil Moisture Trio
 
-This project trains a CatBoost classifier to label Australian grid cells as **dry** or **wet** based on soil moisture, SILO temperature, NDVI (placeholder), and VPD. The CLI in `main.py` orchestrates data prep, training/testing, risk scoring, and optional Folium/PNG exports.
+A rule-based drought risk monitoring pipeline for the Australian landscape. Combines AWRA-L soil moisture decile ranks, SILO maximum temperature, and SILO vapour pressure deficit into a composite stress index, then assigns categorical risk levels to each grid cell.
 
-Key changes and operational notes (recent):
+## Outputs
 
-- The pipeline now requires the AWRAL `sm_pct` product for soil moisture. The loader is defensive about units: it will autodetect whether `sm_pct` is expressed as percent (0–100) or already as a fraction (0–1) and only convert (divide by 100) when the data clearly appears to be percent. A short INFO message is printed at load time describing which branch was taken. Internally the pipeline works with volumetric fraction (0–1).
-- The legacy `sm` product fallback has been removed to avoid unit confusion. If `sm_pct` cannot be found the pipeline will raise a clear error (see `pipeline._load_all_real_data`).
-- `assess_risk_levels()` now returns a continuous per-cell "dryness / stress" index in addition to the categorical risk map and summary — callers (and `pipeline.assess_risk`) now expose this `stress_index` for plotting and diagnostics.
-- Plotting and diagnostics were hardened: diagnostic scatter/hist panels now flatten/mask NaNs and extreme outliers, and a lat/lon alignment bug (incorrect indexing for arrays with leading dims) was fixed so the diagnostic axes show realistic values.
+| Artifact | Format | Description |
+| --- | --- | --- |
+| Risk map | NetCDF | `RiskLevel` per cell: Low / Watch / Alert / Critical |
+| Summary | JSON | Cell counts and percentages per risk band |
+| Risk plot | PNG | Two-panel: categorical map + continuous stress index |
+| Bulletin | Markdown | Policy-ready bulletin rendered from summary JSON |
 
-Weather data sourcing
+## Requirements
 
-- Soil moisture: AWRAL `sm_pct` NetCDF on NCI (required). The pipeline converts this percent product into a volumetric fraction internally.
-- SILO variables (max temperature, VPD, etc.) default to the `weather_tools` GeoTIFF/COG loader so we only download the requested bounding box. Use `--no-silo-cog-loader` to revert to the older NetCDF-based loader when needed.
+- Python 3.12 via [`uv`](https://docs.astral.sh/uv/)
+- Network access to NCI THREDDS (AWRAL `sm_pct`) and AWS S3 / `weather_tools` (SILO)
 
-Configure key loader/pipeline behaviour via `ClassifierConfig` and the `main.py` CLI flags:
-
-- `--silo-variable` (repeatable) selects which SILO variables/presets to request (e.g., `max_temp`, `vp_deficit`).
-- `--silo-cache-dir`, `--silo-cache-max-mb`, `--silo-overview-level`, and `--silo-buffer-deg` control COG subsetting and caching behaviour.
-- Spatial focus: `--min-lat/--max-lat/--min-lon/--max-lon`.
-
-Running the pipeline (example):
+## Setup
 
 ```bash
-.venv/bin/python main.py \
-  --silo-variable max_temp \
-  --silo-variable vp_deficit \
-  --year 2024 \
-  --start-date 2024-01-01 \
-  --end-date 2024-03-31
+uv sync
 ```
 
-Example using `uv` (project toolchain) with a WA bounding box and 2025-Oct window:
+## Quick Start — WA Southwest Agricultural Zone
+
+The boundary file is locally supplied and intentionally not redistributed. Obtain the approved DPIRD boundary and place it at `data/south_west_agricultural_boundary.gpkg`; see [`data/README.md`](data/README.md).
 
 ```bash
 uv run python main.py \
-  --year 2025 \
-  --start-date 2025-10-01 \
-  --end-date 2025-10-15 \
-  --risk-output-prefix outputs/risk_layer_2025oct_WA \
-  --risk-plot-path outputs/risk_layer_2025oct_WA.png \
+  --year 2026 \
+  --start-date 2026-03-01 \
+  --end-date 2026-03-23 \
+  --output-dir outputs/risk_2026_mar_SWAZ \
+  --risk-output-prefix risk_2026_mar_SWAZ \
+  --risk-plot-path risk_2026_mar_SWAZ.png \
   --silo-variable max_temp \
   --silo-variable vp_deficit \
-  --silo-cache-dir /tmp/silo_cache \
-  --silo-cache-max-mb 200 \
-  --min-lat -35 \
-  --max-lat -13 \
-  --min-lon 112 \
-  --max-lon 129
+  --silo-cache-dir ~/.cache/soil_moisture_trio/silo_swaz \
+  --boundary-gpkg data/south_west_agricultural_boundary.gpkg
 ```
 
+Then render a bulletin (all files in the same run directory):
 
-Thresholds and calibration guidance
+```bash
+uv run python scripts/render_bulletin.py \
+  --summary-json outputs/risk_2026_mar_SWAZ/risk_2026_mar_SWAZ_summary.json \
+  --map-png outputs/risk_2026_mar_SWAZ/risk_2026_mar_SWAZ.png \
+  --output outputs/risk_2026_mar_SWAZ/bulletin_2026_mar_SWAZ.md \
+  --region "South West Agricultural Zone"
+```
 
-The internal canonical soil moisture unit used by the pipeline is volumetric fraction (0–1). Note that some deployments of the AWRAL product provide `sm_pct` already as a fraction (0–1); others provide true percents (0–100). The loader now auto-detects and adapts. Recent diagnostics on 2024 data showed the grid contains much smaller values than older expectations (so an absolute cutoff like 0.25 would mark most cells dry).
+See [docs/cli-reference.md](docs/cli-reference.md) for all flags.
 
-Recommendations:
+## How It Works
 
-- Short-term (fast check): keep the existing hardcoded thresholds for compatibility, but when running on a new dataset try a lower `moisture_threshold` (for example 0.01–0.03 = 1–3% volumetric fraction) and visually inspect the risk maps.
-- Medium/long-term (recommended): compute thresholds from a reference climatology (e.g., set `moisture_threshold` to the 25th percentile of the multi-year baseline for your region/season; `severe_moisture_threshold` could be the 10th percentile). This is more robust than fixed numbers and will adapt to sensor/processing differences.
-- The pipeline now prints a helpful message when it detects that `sm_pct` was converted; use that to verify whether your copy of the product needs a manual override.
+1. **Load** — AWRAL `sm_pct` percentile rank (0–1) + SILO `max_temp` and `vp_deficit`, clipped to bounds and averaged over the requested time window
+2. **Risk** — composite stress index: 60% soil moisture deficit (departure below median) + 25% VPD + 15% temperature, normalised against agronomic critical thresholds
+3. **Classify** — stress index thresholds assign each cell to Low / Watch / Alert / Critical; ocean and missing-data cells are masked (`-1`)
+4. **Output** — NetCDF risk map, JSON summary, PNG figures, and optional bulletin
 
-Developer notes
+Full pipeline detail: [docs/architecture.md](docs/architecture.md) | Methodology: [docs/technical_report.md](docs/technical_report.md)
 
-- Tests mock `_load_all_real_data` for speed (so unit tests remain fast and deterministic).
+## Phase 5 Development Status
 
-See `Plan.md` for suggested follow-ups: threshold calibration, integration tests, and optional CLI compatibility flag.
+A separate, non-operational SLGA prototype now supports pinned AWC v2 and Depth of Soil v2 source validation, authenticated bounded COG reads, DES-capped storage-capacity integration, EPSG:3577 fractional-overlap harmonisation, tiled processing, and reviewed v1-candidate static-artifact I/O with direct DES context and immutable bundle publication. It has passed deterministic tests, a bounded authenticated 3×3 inland SWAZ multi-tile pilot, and a 5×5 Albany coastal/nodata pilot with exact warm-cache equality.
+
+The first static soil artifact is now scoped to the SWAZ buffered operational rectangle (29,016 canonical AWRA-L cells), not full WA. It has not yet been built or approved, and no soil-stratified risk summary exists. The operational drought pipeline, risk formula, thresholds, valid mask, and outputs remain unchanged and do not fetch or load SLGA data. See [docs/slga-builder-contract.md](docs/slga-builder-contract.md) and [docs/backlog.md](docs/backlog.md).
+
+## Project Structure
+
+```text
+src/soil_moisture_trio/
+  config.py        ClassifierConfig — all tunable parameters (Pydantic)
+  pipeline.py      DryWetClassifierPipeline — data loading and risk assessment
+  data_sources.py  WeatherToolsSiloLoader — SILO COG fetcher + persistent cache
+  risk.py          Composite stress index, RiskLevel enum, NetCDF/JSON output
+  plot.py          PNG outputs
+  slga/            Phase 5 static-soil prototype; separate from risk runtime
+templates/         Jinja2 output templates
+scripts/           Standalone utilities (bulletin renderer and bounded SLGA pilot)
+tests/             pytest suite (mocks network I/O)
+docs/              Reference documentation
+sessions/          Per-session notes and working log
+```
+
+## Configuration
+
+All thresholds live in `ClassifierConfig` (`src/.../config.py`). Key defaults:
+
+| Parameter | Default | Note |
+| --- | --- | --- |
+| `moisture_threshold` | 0.50 | Dryness reference — departure below climatological median |
+| `critical_temp_threshold` | 40.0 °C | Normalisation ceiling for temperature factor |
+| `critical_vpd_threshold` | 32.0 hPa | Normalisation ceiling for VPD factor (3.2 kPa) |
+| `dryness_weight` / `vpd_weight` / `temperature_weight` | 0.60 / 0.25 / 0.15 | Validated to sum to 1 |
+| `watch_risk_threshold` / `alert_risk_threshold` / `critical_risk_threshold` | 0.35 / 0.60 / 0.85 | Validated in strictly increasing order |
+| `silo_cache_dir` | `~/.cache/soil_moisture_trio/silo` | Persistent tile cache; created automatically |
+
+## SILO Cache
+
+SILO GeoTIFF tiles are cached under `~/.cache/soil_moisture_trio/silo` by default and persist across runs. The loader now creates bbox-scoped subdirectories inside that cache root, so repeated runs for the same bounds reuse tiles without cross-bbox collisions.
+
+## Verification
+
+```bash
+uv sync --frozen --group dev
+uv run pytest -q
+uv run ruff check
+```
+
+The networked moisture-range utility is intentionally outside the test suite:
+
+```bash
+uv run python scripts/moisture_ranges_diagnostic.py
+```
+
+## Docs
+
+| Doc | Contents |
+| --- | --- |
+| [docs/technical_report.md](docs/technical_report.md) | Full methodology: data sources, stress index, thresholds, scientific rationale |
+| [docs/architecture.md](docs/architecture.md) | Pipeline flow, data contract, spatial handling |
+| [docs/data-sources.md](docs/data-sources.md) | AWRAL/SILO sources, units, cache |
+| [docs/cli-reference.md](docs/cli-reference.md) | All operational CLI flags |
+| [docs/slga-evidence-review.md](docs/slga-evidence-review.md) | Soil-property evidence, product selection, and scientific limits |
+| [docs/slga-builder-contract.md](docs/slga-builder-contract.md) | B25b source, harmonisation, artifact, and failure contract |
+| [docs/backlog.md](docs/backlog.md) | Open issues and next steps |
+| [CHANGELOG.md](CHANGELOG.md) | Per-sprint changes |

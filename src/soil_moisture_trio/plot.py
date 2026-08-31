@@ -1,4 +1,5 @@
 from datetime import datetime
+import logging
 from pathlib import Path
 from typing import Dict, Optional
 
@@ -11,17 +12,20 @@ from matplotlib.colors import BoundaryNorm, ListedColormap
 
 from src.soil_moisture_trio.risk import RISK_COLORS, RISK_LABELS, RiskLevel
 
+LOGGER = logging.getLogger(__name__)
+
 
 # ---------------------------------------------------------------------
 # Main combined plot: categorical map + continuous dryness panel
 # ---------------------------------------------------------------------
 def save_risk_plot(
     risk_map: np.ndarray,
-    stress_index: Optional[np.ndarray],
     lats: np.ndarray,
     lons: np.ndarray,
+    stress_index: Optional[np.ndarray] = None,
     output_path: str = "risk_map.png",
     time_metadata: Optional[Dict[str, str]] = None,
+    boundary_gpkg: Optional[str] = None,
 ) -> Path:
     """
     Render a two-panel PNG figure:
@@ -35,21 +39,6 @@ def save_risk_plot(
         output_path: Filepath for PNG.
         time_metadata: Optional date metadata dict.
     """
-    # Backwards-compatibility: older callers used signature
-    # save_risk_plot(risk_map, lats, lons, output_path)
-    # while newer callers pass stress_index as second arg. Detect the legacy
-    # positional ordering and reorder arguments accordingly.
-    def _is_arraylike(x):
-        return isinstance(x, (list, tuple, np.ndarray))
-
-    # If the third positional arg (lons) is not array-like but the first two are,
-    # it's likely the caller used the old signature: (risk_map, lats, lons, output)
-    if not _is_arraylike(lons) and _is_arraylike(stress_index) and _is_arraylike(lats):
-        output_path = lons  # third positional was actually output_path
-        lons = lats  # second positional was actually lons
-        lats = stress_index  # first positional after risk_map was lats
-        stress_index = None
-
     risk_map = np.asarray(risk_map)
     # Allow callers to omit the continuous stress index (None). In that case derive a
     # numeric fallback from the categorical `risk_map` so plotting still works.
@@ -81,7 +70,7 @@ def save_risk_plot(
     output.parent.mkdir(parents=True, exist_ok=True)
 
     # ---- Color setups ----
-    cmap_class = ListedColormap([RISK_COLORS[l] for l in RiskLevel])
+    cmap_class = ListedColormap([RISK_COLORS[level] for level in RiskLevel])
     cmap_class.set_bad("#bdbdbd")
     bounds = np.arange(len(RiskLevel) + 1) - 0.5
     norm_class = BoundaryNorm(bounds, cmap_class.N)
@@ -104,7 +93,7 @@ def save_risk_plot(
     ax1.set_title(title)
     cbar1 = fig.colorbar(mesh1, ax=ax1, orientation="vertical", pad=0.02, fraction=0.046)
     cbar1.set_ticks(np.arange(len(RiskLevel)))
-    cbar1.set_ticklabels([RISK_LABELS[l] for l in RiskLevel])
+    cbar1.set_ticklabels([RISK_LABELS[level] for level in RiskLevel])
     cbar1.set_label("Risk Level")
     cbar1.ax.tick_params(labelsize=9)
 
@@ -119,11 +108,19 @@ def save_risk_plot(
     cbar2.set_label("Dryness–Stress Index")
     cbar2.ax.tick_params(labelsize=9)
 
+    cell_h = float(np.diff(lats).mean()) if len(lats) > 1 else 0.05
+    y_pad = max(abs(cell_h), 0.3)
     for ax in axes:
         ax.set_xlim(np.min(lons), np.max(lons))
-        ax.set_ylim(np.min(lats), np.max(lats))
+        ax.set_ylim(np.min(lats) - y_pad, np.max(lats) + 0.1)
         ax.set_aspect("equal", adjustable="box")
         ax.tick_params(labelsize=10)
+
+    if boundary_gpkg:
+        import geopandas as gpd
+        gdf = gpd.read_file(boundary_gpkg).to_crs("EPSG:4326")
+        for ax in axes:
+            gdf.boundary.plot(ax=ax, color="black", linewidth=0.7, zorder=5)
 
     fig.savefig(output, dpi=200, bbox_inches="tight", facecolor="white")
     plt.close(fig)
@@ -168,18 +165,18 @@ def plot_dryness_diagnostics(
     # Detect and mask obviously-bad VPD values (e.g., unit/scale errors)
     extreme_mask = np.abs(vpd_flat) > 10000
     if extreme_mask.any():
-        print(f"Warning: {int(extreme_mask.sum())} extreme VPD values detected; masking for diagnostics.")
+        LOGGER.warning("Detected %d extreme VPD values; masking for diagnostics.", int(extreme_mask.sum()))
         vpd_flat[extreme_mask] = np.nan
 
     # Build final valid mask
     valid = np.isfinite(stress_flat) & np.isfinite(soil_flat) & np.isfinite(vpd_flat)
 
-    # Histogram of dryness–stress
+    # Histogram of soil moisture percentile rank
     ax1 = axes[0]
-    ax1.hist(stress_flat[valid], bins=40, color="steelblue", alpha=0.8)
-    ax1.set_xlabel("Dryness–Stress Index (0–1)")
+    ax1.hist(soil_flat[valid], bins=40, color="steelblue", alpha=0.8)
+    ax1.set_xlabel("Soil Moisture Percentile Rank (0–1)")
     ax1.set_ylabel("Frequency")
-    ax1.set_title("Distribution of Dryness–Stress Index")
+    ax1.set_title("Distribution of Soil Moisture Percentile Rank")
 
     # Scatter of soil moisture vs. VPD colored by stress
     ax2 = axes[1]

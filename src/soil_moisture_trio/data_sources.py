@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import hashlib
 import logging
 from dataclasses import dataclass
 from datetime import date
@@ -12,7 +13,7 @@ import xarray as xr
 from shapely.geometry import Polygon, box
 from weather_tools.silo_geotiff import download_geotiff
 
-logger = logging.getLogger(__name__)
+LOGGER = logging.getLogger(__name__)
 
 
 @dataclass
@@ -52,22 +53,36 @@ class WeatherToolsSiloLoader:
     ) -> WeatherToolsResult:
         if not variables:
             raise ValueError("At least one SILO variable must be provided.")
+        if target_lats.size == 0 or target_lons.size == 0:
+            raise ValueError("target_lats and target_lons must be non-empty.")
+        if end_date < start_date:
+            raise ValueError("end_date must be on or after start_date.")
 
         min_lat, max_lat, min_lon, max_lon = bounds
+        if min_lat >= max_lat:
+            raise ValueError("min_lat must be less than max_lat.")
+        if min_lon >= max_lon:
+            raise ValueError("min_lon must be less than max_lon.")
         geometry = self._build_geometry(min_lat, max_lat, min_lon, max_lon)
+        cache_path = self._cache_dir_for_bounds(bounds)
+        if cache_path is not None:
+            LOGGER.info("Using SILO cache path %s for bounds %s", cache_path, bounds)
 
         payload = download_geotiff(
             variables=list(variables),
             start_date=start_date,
             end_date=end_date,
             geometry=geometry,
-            output_dir=self.cache_dir if self.cache_dir else None,
-            save_to_disk=self.cache_dir is not None,
+            output_dir=cache_path,
+            save_to_disk=cache_path is not None,
             read_files=True,
             overview_level=self.overview_level,
         )
         if not payload:
             raise ValueError("weather_tools returned no data for the requested SILO variables.")
+        missing_variables = [variable for variable in variables if variable not in payload]
+        if missing_variables:
+            raise ValueError(f"weather_tools payload missing requested SILO variables: {missing_variables}")
 
         arrays: Dict[str, np.ndarray] = {}
         for variable, (stack, profile) in payload.items():
@@ -81,6 +96,20 @@ class WeatherToolsSiloLoader:
 
         meta = {'time_start': start_date.isoformat(), 'time_end': end_date.isoformat()}
         return WeatherToolsResult(data=arrays, lats=target_lats, lons=target_lons, time_metadata=meta)
+
+    def _cache_dir_for_bounds(self, bounds: Tuple[float, float, float, float]) -> Optional[Path]:
+        if self.cache_dir is None:
+            return None
+        cache_key = self._bounds_cache_key(bounds)
+        cache_path = self.cache_dir / cache_key
+        cache_path.mkdir(parents=True, exist_ok=True)
+        return cache_path
+
+    @staticmethod
+    def _bounds_cache_key(bounds: Tuple[float, float, float, float]) -> str:
+        serialized = ",".join(f"{value:.4f}" for value in bounds)
+        digest = hashlib.sha1(serialized.encode("utf-8")).hexdigest()[:10]
+        return f"bbox_{digest}"
 
     def _enforce_cache_limit(self) -> None:
         files = [p for p in self.cache_dir.rglob("*") if p.is_file()] if self.cache_dir else []
@@ -116,6 +145,8 @@ class WeatherToolsSiloLoader:
         if data.ndim == 3:
             with np.errstate(invalid='ignore'):
                 data = np.nanmean(data, axis=0)
+        if data.ndim != 2:
+            raise ValueError(f"Expected SILO stack to reduce to 2D grid, got shape {data.shape}.")
         return data
 
     @staticmethod
@@ -140,6 +171,10 @@ class WeatherToolsSiloLoader:
         data, source_lats, source_lons = WeatherToolsSiloLoader._orient_to_ascending(
             data, source_lats, source_lons
         )
+        if data.shape != (len(source_lats), len(source_lons)):
+            raise ValueError(
+                f"SILO grid shape {data.shape} does not match source coordinates {(len(source_lats), len(source_lons))}."
+            )
         da = xr.DataArray(data, coords={'lat': source_lats, 'lon': source_lons}, dims=('lat', 'lon'))
         reindexed = da.interp(lat=target_lats, lon=target_lons, method='nearest')
         return reindexed.values

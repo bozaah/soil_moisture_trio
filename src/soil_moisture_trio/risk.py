@@ -23,7 +23,7 @@ RISK_LABELS = {
     RiskLevel.LOW: "Low",
     RiskLevel.WATCH: "Watch",
     RiskLevel.ALERT: "Alert",
-    RiskLevel.CRITICAL: "High",
+    RiskLevel.CRITICAL: "Critical",
 }
 
 RISK_COLORS = {
@@ -37,13 +37,13 @@ RISK_COLORS = {
 # ---------------------------------------------------------------------
 # Validation Helper
 # ---------------------------------------------------------------------
-def _validate_shapes(data_grids: Dict[str, np.ndarray], classification_grid: np.ndarray) -> None:
-    """Ensure all required grids share the same shape."""
+def _validate_shapes(data_grids: Dict[str, np.ndarray], valid_mask: np.ndarray) -> None:
+    """Ensure all required grids share the same shape as the valid mask."""
     required = ['soil_moisture', 'temperature', 'vpd']
-    base_shape = classification_grid.shape
+    base_shape = valid_mask.shape
     for key in required:
         if data_grids[key].shape != base_shape:
-            raise ValueError(f"{key} grid shape {data_grids[key].shape} does not match classification grid {base_shape}.")
+            raise ValueError(f"{key} grid shape {data_grids[key].shape} does not match valid_mask shape {base_shape}.")
 
 
 # ---------------------------------------------------------------------
@@ -51,26 +51,26 @@ def _validate_shapes(data_grids: Dict[str, np.ndarray], classification_grid: np.
 # ---------------------------------------------------------------------
 def _compute_risk_map(
     data_grids: Dict[str, np.ndarray],
-    classification_grid: np.ndarray,
+    valid_mask: np.ndarray,
     config: ClassifierConfig
-) -> np.ndarray:
+) -> Tuple[np.ndarray, np.ndarray]:
     """
     Compute risk map using a physically-based dryness–stress index that combines:
-      - soil moisture deficit
+      - soil moisture deficit (percentile rank below moisture_threshold)
       - temperature stress
       - vapour pressure deficit stress
 
-    The stress index (0–1) is weighted by each factor:
-        dryness:  0.6 (primary)
-        temperature: 0.25
-        vpd: 0.15
+    The stress index (0–1) uses the validated weights and category thresholds
+    from ClassifierConfig.
+
+    Args:
+        valid_mask: boolean array marking land/data cells to include (False = ocean/NaN).
     """
     soil_moisture = data_grids['soil_moisture']
     temperature = data_grids['temperature']
     vpd = data_grids['vpd']
 
     risk_map = np.full(soil_moisture.shape, -1, dtype=np.int8)
-    valid_mask = classification_grid >= 0
     if not valid_mask.any():
         # also return a stress_index filled with NaNs when no valid cells
         stress_index = np.full(soil_moisture.shape, np.nan, dtype=float)
@@ -82,13 +82,19 @@ def _compute_risk_map(
     vpd_factor = np.clip(vpd / config.critical_vpd_threshold, 0, 1)
 
     # Weighted composite stress index (0–1)
-    stress_index = (0.6 * dryness) + (0.25 * vpd_factor) + (0.15 * temp_factor)
+    stress_index = (
+        (config.dryness_weight * dryness)
+        + (config.vpd_weight * vpd_factor)
+        + (config.temperature_weight * temp_factor)
+    )
+    stress_index = np.asarray(stress_index, dtype=float)
+    stress_index[~valid_mask] = np.nan
 
     # --- Assign categorical risk levels ---
     risk_map[valid_mask] = RiskLevel.LOW
-    critical_mask = valid_mask & (stress_index >= 0.85)
-    alert_mask = valid_mask & ~critical_mask & (stress_index >= 0.6)
-    watch_mask = valid_mask & ~alert_mask & ~critical_mask & (stress_index >= 0.35)
+    critical_mask = valid_mask & (stress_index >= config.critical_risk_threshold)
+    alert_mask = valid_mask & ~critical_mask & (stress_index >= config.alert_risk_threshold)
+    watch_mask = valid_mask & ~alert_mask & ~critical_mask & (stress_index >= config.watch_risk_threshold)
 
     risk_map[watch_mask] = RiskLevel.WATCH
     risk_map[alert_mask] = RiskLevel.ALERT
@@ -102,23 +108,27 @@ def _compute_risk_map(
 # ---------------------------------------------------------------------
 def assess_risk_levels(
     data_grids: Dict[str, np.ndarray],
-    classification_grid: np.ndarray,
+    valid_mask: np.ndarray,
     config: ClassifierConfig
 ) -> Tuple[np.ndarray, Dict[str, Dict[str, float]], np.ndarray]:
     """
     Derive a categorical risk layer from soil moisture, temperature, and VPD using
     a physically grounded dryness–stress model.
 
+    Args:
+        valid_mask: boolean array (lat, lon) — True for land/data cells, False for ocean/NaN.
+
     Returns:
         risk_map: np.ndarray of RiskLevel values per grid cell
         summary: Dict summarising cell counts and proportions per level
+        stress_index: continuous weighted stress array (NaN for invalid cells). It is within 0–1 when inputs and normalisation references follow the documented data contract.
     """
-    _validate_shapes(data_grids, classification_grid)
-    risk_map, stress_index = _compute_risk_map(data_grids, classification_grid, config)
+    _validate_shapes(data_grids, valid_mask)
+    risk_map, stress_index = _compute_risk_map(data_grids, valid_mask, config)
 
     total = risk_map.size
-    valid_mask = risk_map >= 0
-    total_valid = int(np.sum(valid_mask))
+    result_valid = risk_map >= 0
+    total_valid = int(np.sum(result_valid))
     invalid_count = total - total_valid
 
     summary: Dict[str, Dict[str, float]] = {}
@@ -155,6 +165,7 @@ def save_risk_outputs(
     summary: Dict[str, Dict[str, float]],
     base_path: Union[str, Path] = "risk_layer",
     time_metadata: Optional[Dict[str, str]] = None,
+    model_metadata: Optional[Dict[str, float]] = None,
 ) -> Dict[str, Path]:
     """
     Persist the risk map to NetCDF and the summary to JSON.
@@ -165,6 +176,7 @@ def save_risk_outputs(
         summary: Dict from assess_risk_levels
         base_path: Output file prefix
         time_metadata: Optional metadata (start/end ISO datetimes)
+        model_metadata: Optional stress-model weights and thresholds
 
     Returns:
         dict with keys 'netcdf' and 'summary' pointing to written files
@@ -187,10 +199,16 @@ def save_risk_outputs(
     ds.attrs["risk_summary_json"] = json.dumps(summary)
     if time_metadata:
         ds.attrs.update(time_metadata)
+    if model_metadata:
+        ds.attrs["risk_model_json"] = json.dumps(model_metadata)
     ds.to_netcdf(nc_path)
 
     with summary_path.open("w", encoding="utf-8") as fp:
-        payload = {"summary": summary, "time_metadata": time_metadata or {}}
+        payload = {
+            "summary": summary,
+            "time_metadata": time_metadata or {},
+            "model_metadata": model_metadata or {},
+        }
         json.dump(payload, fp, indent=2)
 
     return {"netcdf": nc_path, "summary": summary_path}
