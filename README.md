@@ -67,6 +67,10 @@ A separate, non-operational SLGA prototype now supports pinned AWC v2 and Depth 
 
 The first static soil artifact is now scoped to the SWAZ buffered operational rectangle (29,016 canonical AWRA-L cells), not full WA. It has not yet been built or approved, and no soil-stratified risk summary exists. The operational drought pipeline, risk formula, thresholds, valid mask, and outputs remain unchanged and do not fetch or load SLGA data. See [docs/slga-builder-contract.md](docs/slga-builder-contract.md) and [docs/backlog.md](docs/backlog.md).
 
+**Review-only exception (31 August 2026):** Rodrigo authorised a SWAZ artifact build as input to Karen Holmes and Dennis van Gool's review. This does not approve distribution, promotion or operational use. The general gate remains in force for every other purpose. See [the recorded waiver](sessions/2026-08-31-swaz-review-build-waiver.md).
+
+**Verified 11 September 2026:** no SWAZ artifact or checkpoints exist locally. Tests: 91 passed, 1 authenticated SLGA check skipped. Ruff clean. No fresh network run or independent drought-impact validation performed. March SWAZ risk bundles and small SLGA engineering pilots exist locally under ignored `outputs/`. Git does not back up those outputs or local source data.
+
 ## Project Structure
 
 ```text

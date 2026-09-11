@@ -78,6 +78,10 @@ All outputs (`.nc`, `_summary.json`, risk PNG, `stress_diagnostics.png`) land in
 
 **Phase 5 static soil artifact scope:** the first artifact is SWAZ-only, not full WA. Its exact canonical AWRA-L rectangle is latitude −27.45…−35.20 (descending) and longitude 114.05…123.30 (ascending), 156×186 = 29,016 cells, covering the approved boundary’s +0.1° operational bbox. Do not run a full-WA static SLGA artifact build in this phase.
 
+**Review-only exception:** Rodrigo authorised the SWAZ build on 2026-08-31 as input to Karen Holmes and Dennis van Gool's review. Read [the waiver](sessions/2026-08-31-swaz-review-build-waiver.md) before interpreting the build gate. Distribution, promotion and operational use still require approval. No artifact/checkpoints exist locally as of 2026-09-11. Recheck prerequisites before Rodrigo runs the command. The builder requires a clean committed worktree, so documentation edits must be committed by Rodrigo first.
+
+**Scientific claim boundary:** tests verify implementation, not independent drought-impact skill. Soil stratification remains unimplemented. Keep future grouped summaries separate from `risk.py` calculations and preserve risk validity independently of soil coverage.
+
 **SILO data lag:** SILO tiles are typically available with a 1–2 day lag. Always set `--end-date` to at most 2 days before today or the pipeline will fail with shape-mismatch errors on missing future tiles.
 
 ## Session History
@@ -108,6 +112,9 @@ All outputs (`.nc`, `_summary.json`, risk PNG, `stress_diagnostics.png`) land in
 - [sessions/2026-08-14-phase5-slga-albany-coastal-pilot.md](sessions/2026-08-14-phase5-slga-albany-coastal-pilot.md) — authenticated Albany coastal/nodata profiles through 100 cells; provisional 10×10 tile / 256 MiB SWAZ build setting
 - [sessions/2026-08-14-phase5-slga-artifact-schema-review.md](sessions/2026-08-14-phase5-slga-artifact-schema-review.md) — schema/DES/promotion review followed by approved direct DES, width-support, and immutable-bundle implementation
 - [sessions/2026-08-14-phase5-slga-resumable-swaz-build.md](sessions/2026-08-14-phase5-slga-resumable-swaz-build.md) — explicit clean-commit SWAZ command with checksum-bound resumable stripes; not executed
+
+- [sessions/2026-08-31-swaz-review-build-waiver.md](sessions/2026-08-31-swaz-review-build-waiver.md) — named review-input exception, not operational approval
+- [sessions/2026-09-11-state-doc-reconciliation.md](sessions/2026-09-11-state-doc-reconciliation.md) — verified implementation boundary and documentation corrections
 
 ## First Principles
 

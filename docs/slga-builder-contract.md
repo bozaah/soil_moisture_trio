@@ -203,13 +203,15 @@ Source nodata, target-cell partial coverage, and zero valid overlap are expected
 
 The B25b implementation is validated on synthetic grids and authenticated SWAZ windows up to 100 target cells where all requested COGs pass pinned identity/profile checks and source arrays share the native grid. It demonstrates retrieval, native integration, fractional-overlap behaviour, coastal nodata handling, tile-order equality, reviewed schema writing/loading, and immutable bundle mechanics—not SWAZ-wide completeness or performance, paddock accuracy, scientific fitness, or approved soil bands.
 
-Before the SWAZ artifact build:
+General review/build requirements (subject only to the named review-input exception below):
 
 - revalidate the pinned authoritative AWRA-L v7 input, tracked 18-source manifest, approved boundary hash, and exact 156×186 footprint;
 - retain the user-approved v1 candidate schema/chunking and provisional 10×10 target-tile / 256 MiB cache choice unless new evidence triggers a versioned contract change;
-- define and approve whole-SWAZ elapsed, failure, cleanup, and restart/resume behavior;
-- decide whether external HTTP byte measurement or independent full-object source checksums are required;
+- retain the implemented checksum-bound stripe resume, fail-if-present publication and six-hour between-stripe runtime limit (not a hard process deadline);
+- retain the 08-14 decision to use audited counters without external HTTP-byte telemetry and publisher multihashes plus strict profile checks without full COG downloads;
 - approve the internal distribution location, bundle review authority, and rollback procedure;
 - complete external soil-science fitness, terminology, direct-DES, and uncertainty-scenario review.
+
+**Review-input exception (2026-08-31):** Rodrigo authorised building the SWAZ artifact before external review so Karen Holmes and Dennis van Gool can assess it. [The waiver](../sessions/2026-08-31-swaz-review-build-waiver.md) does not approve distribution, promotion or operational use. No artifact or checkpoints exist locally as of 2026-09-11. Recheck execution prerequisites before running.
 
 Minimum acceptable coverage, coastal/polygon summary denominator policy, stratification bands/reference domain, and uncertainty-width thresholds remain explicitly unresolved and are not B25b constants.

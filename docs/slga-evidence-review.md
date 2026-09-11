@@ -231,6 +231,8 @@ The narrow prototype is implemented under `src/soil_moisture_trio/slga/` and gov
 6. **Soil-scientist review remains:** Karen Holmes and Dennis van Gool should review terminology, AWC/DES interpretation, coverage treatment, uncertainty scenarios, and eventual banding.
 7. **Fitness-for-purpose documentation remains a release gate:** ship WA accuracy caveats, shared ancestry, change-of-support limitations, observed coverage, provenance, and uncertainty labels with any promoted product.
 
+**Named review-input exception (2026-08-31):** Rodrigo authorised the SWAZ build before external review solely to inform Karen Holmes and Dennis van Gool's assessment. See [the waiver](../sessions/2026-08-31-swaz-review-build-waiver.md). This exception does not remove the distribution/release approvals in items 4 and 7. As of 2026-09-11, no local artifact exists and exact bands/reference domain and coverage rules remain unresolved.
+
 **Benchmarks that would change the recommendation:** if DPIRD field/APSoil data show SLGA AWC has unacceptable bias for the SWAZ at 5 km, demote AWC to "context only" and prioritise a WA-regional PAWC layer; if effective-depth mapping proves materially independent and accurate, promote it to co-primary; if a future SLGA v3 hydraulic suite supersedes AWC v2, re-pin.
 
 ## 19. Claim-to-source evidence table

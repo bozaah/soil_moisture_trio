@@ -8,7 +8,7 @@ Items are grouped by theme. See `CHANGELOG.md` for what was done each sprint.
 
 - ~~**B1**~~ **RESOLVED (Sprint 6)** — Switched pipeline from raw `sm_pct` (values/day) to AWRAL percentile rank (deciles/day). This removed the gross over-classification caused by fixed raw thresholds. Jan–Mar 2026 WA: Critical 1.1%, Alert 6.8%, Watch 12.3%, Low 79.9% (was Critical 47.1% with old raw product). See `docs/technical_report.md`.
 
-- ~~**B3**~~ **RESOLVED (Sprint 6)** — Decile product is the calibration. No separate helper needed; percentile rank thresholds (≤0.10 Critical, 0.10–0.20 Alert, 0.20–0.30 Watch, ≥0.30 Low) have stable climatological meaning across all locations and seasons. Calibration baseline: `data/awral_decile_sm_pct_WA_monthly.nc` (1911–2026).
+- ~~**B3**~~ **RESOLVED (Sprint 6)** — The decile product supplies spatially and seasonally normalised percentile ranks, removing the need for the proposed raw-moisture calibration helper. Risk categories do not use direct percentile cutoffs: `risk.py` thresholds the weighted stress index at 0.35/0.60/0.85 by default. This correction is not independent validation of drought-impact skill. Historical baseline: `data/awral_decile_sm_pct_WA_monthly.nc` (1911–2026).
 
 ---
 
@@ -39,6 +39,12 @@ Items are grouped by theme. See `CHANGELOG.md` for what was done each sprint.
 ## Current Priorities and Sequencing
 
 The immediate scientific direction is soil-property stratification. Phase 5 adds interpretation and grouped summaries around the existing per-cell outputs; it must not change the stress formula, configured thresholds, risk classification, or invalid-cell handling.
+
+### Review-build exception and verified state (2026-09-11)
+
+The general approval gate below remains in force. Rodrigo's [2026-08-31 waiver](../sessions/2026-08-31-swaz-review-build-waiver.md) permits one SWAZ build as review input for Karen Holmes and Dennis van Gool, without prior external approval. It does not authorise distribution, promotion or operational use.
+
+The builder and resumable checkpoints are implemented, but no SWAZ artifact or checkpoints exist locally. B14a/B25c remain unimplemented. Recheck prerequisites before Rodrigo runs the review build, arrange the review, then settle product/bands/coverage and implement the grouped summaries. Band rationale support does not supply the exact band values, reference domain or coverage rule still marked TBA here.
 
 ### Now — Phase 5: soil-property stratification
 

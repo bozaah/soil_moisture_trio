@@ -108,6 +108,8 @@ It is hard-scoped to the exact 156×186 SWAZ footprint, 10-row resumable stripes
 
 The command is implemented but must not be run until external soil-science and distribution review explicitly approves the SWAZ review build. A full-WA static artifact will not be built in this phase. See [`slga-builder-contract.md`](slga-builder-contract.md).
 
+**Named exception, 2026-08-31:** Rodrigo waived this gate for a SWAZ build as review input to Karen Holmes and Dennis van Gool only. See [the waiver](../sessions/2026-08-31-swaz-review-build-waiver.md). The general rule above is unchanged for every other purpose. No distribution, promotion or operational use follows from the waiver. Recheck prerequisites before execution, including the pinned local input, credentials and clean committed worktree. The builder stamps the actual clean HEAD, not a commit copied from an older session. No artifact/checkpoints exist locally as of 2026-09-11.
+
 ## Environment
 
 - Use `uv run ...` or activate `.venv` — do not install into system Python

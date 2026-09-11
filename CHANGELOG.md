@@ -4,6 +4,12 @@ All notable changes per sprint/iteration. Format: `## [sprint] YYYY-MM-DD — Ti
 
 ---
 
+## [Docs] 2026-09-11 — Current-state reconciliation
+
+Linked the 08-31 review-build exception from active entry docs without removing the general approval gate. Corrected B3's obsolete direct percentile cutoffs and stale build-planning status. Documented absent SWAZ artifact/grouped summaries, local-data backup limits and the distinction between implementation tests and independent scientific validation.
+
+Verified against `03d42c9`: 91 tests passed, 1 authenticated SLGA test skipped, Ruff clean. No code changes or fresh network/build run. Details: [session record](sessions/2026-09-11-state-doc-reconciliation.md).
+
 ## [Phase 5] 2026-08-14 — Resumable SWAZ production command
 
 ### Added
