@@ -1,4 +1,5 @@
 from datetime import date
+from pathlib import Path
 
 import numpy as np
 import pytest
@@ -6,177 +7,159 @@ from affine import Affine
 
 from src.soil_moisture_trio.data_sources import WeatherToolsSiloLoader
 
+PROFILE = {
+    "transform": Affine(0.5, 0, 150, 0, -0.5, -34),
+    "height": 2, "width": 2, "crs": "EPSG:4326",
+}
+ARGS = {
+    "variables": ["max_temp"], "start_date": date(2024, 1, 1), "end_date": date(2024, 1, 2),
+    "bounds": (-35.0, -34.0, 150.0, 151.0),
+    "target_lats": np.array([-34.75, -34.25]), "target_lons": np.array([150.25, 150.75]),
+}
 
-def test_weather_tools_loader_regrids_and_tracks_metadata(monkeypatch):
+
+def loader(cache_dir=None, **options):
+    return WeatherToolsSiloLoader(cache_dir, 100, options.get("overview"), options.get("buffer", 0.0))
+
+
+def mock_download(monkeypatch, names=None):
+    calls = []
+    def download(**kwargs):
+        calls.append(kwargs)
+        return {"max_temp": [Path(name) for name in (names if names is not None else [
+            "20240101.max_temp.tif", "20240102.max_temp.tif",
+        ])]}
+    monkeypatch.setattr("src.soil_moisture_trio.data_sources.download_geotiff", download)
+    monkeypatch.setattr("src.soil_moisture_trio.data_sources.read_cog", lambda path: (np.ones((2, 2)), PROFILE))
+    return calls
+
+
+def test_loader_reads_real_local_rasters_through_pinned_weather_tools(monkeypatch, tmp_path):
+    import rasterio
+    paths = []
+    for day in (1, 2):
+        path = tmp_path / f"2024010{day}.max_temp.tif"
+        data = np.full((2, 2), day, dtype=np.float32)
+        if day == 1:
+            data[0, 0] = -9999
+        with rasterio.open(path, "w", **{
+            **PROFILE, "driver": "GTiff", "count": 1, "dtype": "float32", "nodata": -9999,
+        }) as raster:
+            raster.write(data, 1)
+        paths.append(path)
+    monkeypatch.setattr("src.soil_moisture_trio.data_sources.download_geotiff", lambda **kwargs: {"max_temp": paths})
+    result = loader().load(**ARGS)
+    assert np.isnan(result.data["max_temp"][1, 0])
+    np.testing.assert_array_equal(result.data["max_temp"][0], [1.5, 1.5])
+    assert result.data["max_temp"][1, 1] == 1.5
+
+
+def test_loader_reads_explicit_days_and_regrids_complete_mean(monkeypatch):
+    calls = mock_download(monkeypatch)
     stack = np.arange(8, dtype=np.float32).reshape(2, 2, 2)
-    profile = {
-        'transform': Affine(0.5, 0, 150.0, 0, -0.5, -34.0),
-        'height': 2,
-        'width': 2,
-    }
-
-    captured = {}
-
-    def fake_download_geotiff(**kwargs):
-        captured.update(kwargs)
-        return {'max_temp': (stack, profile)}
-
-    monkeypatch.setattr('src.soil_moisture_trio.data_sources.download_geotiff', fake_download_geotiff)
-
-    loader = WeatherToolsSiloLoader(
-        cache_dir=None,
-        cache_max_size_mb=100,
-        overview_level=None,
-        buffer_degrees=0.0,
-    )
-
-    target_lats = np.array([-34.75, -34.25])
-    target_lons = np.array([150.25, 150.75])
-    result = loader.load(
-        variables=['max_temp'],
-        start_date=date(2024, 1, 1),
-        end_date=date(2024, 1, 2),
-        bounds=(-35.0, -34.0, 150.0, 151.0),
-        target_lats=target_lats,
-        target_lons=target_lons,
-    )
-
-    assert 'max_temp' in result.data
-    assert result.data['max_temp'].shape == (2, 2)
-    assert np.isclose(result.data['max_temp'].mean(), stack.mean())
-    assert result.time_metadata == {'time_start': '2024-01-01', 'time_end': '2024-01-02'}
-    assert captured['geometry'].bounds == (150.0, -35.0, 151.0, -34.0)
+    def read(path):
+        index = 0 if Path(path).name.startswith("20240101") else 1
+        return stack[index], PROFILE
+    monkeypatch.setattr("src.soil_moisture_trio.data_sources.read_cog", read)
+    result = loader().load(**ARGS)
+    np.testing.assert_array_equal(result.data["max_temp"], stack.mean(axis=0)[::-1])
+    assert result.time_metadata == {"time_start": "2024-01-01", "time_end": "2024-01-02"}
+    assert calls[0]["read_files"] is False
+    assert calls[0]["geometry"].bounds == (150, -35, 151, -34)
 
 
-def test_weather_tools_loader_uses_bbox_scoped_cache_dir(monkeypatch, tmp_path):
-    stack = np.arange(4, dtype=np.float32).reshape(1, 2, 2)
-    profile = {
-        'transform': Affine(0.5, 0, 150.0, 0, -0.5, -34.0),
-        'height': 2,
-        'width': 2,
-    }
-    output_dirs = []
-
-    def fake_download_geotiff(**kwargs):
-        output_dirs.append(kwargs["output_dir"])
-        return {'max_temp': (stack, profile)}
-
-    monkeypatch.setattr('src.soil_moisture_trio.data_sources.download_geotiff', fake_download_geotiff)
-
-    loader = WeatherToolsSiloLoader(
-        cache_dir=tmp_path,
-        cache_max_size_mb=100,
-        overview_level=None,
-        buffer_degrees=0.0,
-    )
-    target_lats = np.array([-34.75, -34.25])
-    target_lons = np.array([150.25, 150.75])
-
-    loader.load(
-        variables=['max_temp'],
-        start_date=date(2024, 1, 1),
-        end_date=date(2024, 1, 1),
-        bounds=(-35.0, -34.0, 150.0, 151.0),
-        target_lats=target_lats,
-        target_lons=target_lons,
-    )
-    loader.load(
-        variables=['max_temp'],
-        start_date=date(2024, 1, 1),
-        end_date=date(2024, 1, 1),
-        bounds=(-30.0, -29.0, 120.0, 121.0),
-        target_lats=target_lats,
-        target_lons=target_lons,
-    )
-
-    assert len(output_dirs) == 2
-    assert output_dirs[0] != output_dirs[1]
-    assert output_dirs[0].parent == tmp_path
-    assert output_dirs[1].parent == tmp_path
+@pytest.mark.parametrize("names", [
+    [], ["20240101.max_temp.tif"],
+    ["20240101.max_temp.tif", "20240101.max_temp.tif"],
+    ["20240102.max_temp.tif", "20240101.max_temp.tif"],
+    ["20240101.max_temp.tif", "20240103.max_temp.tif"],
+    ["20240101.vp.tif", "20240102.vp.tif"],
+])
+def test_missing_duplicate_reordered_or_wrong_daily_files_fail(monkeypatch, names):
+    mock_download(monkeypatch, names)
+    with pytest.raises(ValueError, match="daily file list"):
+        loader().load(**ARGS)
 
 
-@pytest.mark.parametrize(
-    "bounds, message",
-    [
-        ((-34.0, -35.0, 150.0, 151.0), "min_lat must be less than max_lat"),
-        ((-35.0, -34.0, 151.0, 150.0), "min_lon must be less than max_lon"),
-    ],
-)
-def test_weather_tools_loader_rejects_inverted_bounds(bounds, message):
-    loader = WeatherToolsSiloLoader(
-        cache_dir=None,
-        cache_max_size_mb=100,
-        overview_level=None,
-        buffer_degrees=0.0,
-    )
-
-    with pytest.raises(ValueError, match=message):
-        loader.load(
-            variables=["max_temp"],
-            start_date=date(2024, 1, 1),
-            end_date=date(2024, 1, 1),
-            bounds=bounds,
-            target_lats=np.array([-34.75, -34.25]),
-            target_lons=np.array([150.25, 150.75]),
-        )
+def test_unreadable_day_is_not_silently_omitted(monkeypatch):
+    mock_download(monkeypatch)
+    def read(path):
+        if "20240102" in path:
+            raise OSError("broken raster")
+        return np.ones((2, 2)), PROFILE
+    monkeypatch.setattr("src.soil_moisture_trio.data_sources.read_cog", read)
+    with pytest.raises(ValueError, match="required SILO day 20240102.*broken raster"):
+        loader().load(**ARGS)
 
 
-def test_weather_tools_loader_rejects_missing_variable_payload(monkeypatch):
-    stack = np.arange(4, dtype=np.float32).reshape(1, 2, 2)
-    profile = {
-        'transform': Affine(0.5, 0, 150.0, 0, -0.5, -34.0),
-        'height': 2,
-        'width': 2,
-    }
-
-    def fake_download_geotiff(**kwargs):
-        return {'max_temp': (stack, profile)}
-
-    monkeypatch.setattr('src.soil_moisture_trio.data_sources.download_geotiff', fake_download_geotiff)
-
-    loader = WeatherToolsSiloLoader(
-        cache_dir=None,
-        cache_max_size_mb=100,
-        overview_level=None,
-        buffer_degrees=0.0,
-    )
-
-    with pytest.raises(ValueError, match="missing requested SILO variables"):
-        loader.load(
-            variables=['max_temp', 'vp_deficit'],
-            start_date=date(2024, 1, 1),
-            end_date=date(2024, 1, 1),
-            bounds=(-35.0, -34.0, 150.0, 151.0),
-            target_lats=np.array([-34.75, -34.25]),
-            target_lons=np.array([150.25, 150.75]),
-        )
+@pytest.mark.parametrize("key, value", [
+    ("transform", Affine(0.5, 0, 151, 0, -0.5, -34)),
+    ("crs", "EPSG:3577"), ("width", 3),
+])
+def test_daily_grid_changes_fail(monkeypatch, key, value):
+    mock_download(monkeypatch)
+    def read(path):
+        profile = dict(PROFILE)
+        if "20240102" in path:
+            profile[key] = value
+        return np.ones((2, 2)), profile
+    monkeypatch.setattr("src.soil_moisture_trio.data_sources.read_cog", read)
+    with pytest.raises(ValueError, match="daily grid changed"):
+        loader().load(**ARGS)
 
 
-def test_weather_tools_loader_rejects_non_2d_reduced_stack(monkeypatch):
-    profile = {
-        'transform': Affine(0.5, 0, 150.0, 0, -0.5, -34.0),
-        'height': 2,
-        'width': 2,
-    }
+def test_bad_daily_shape_fails(monkeypatch):
+    mock_download(monkeypatch)
+    monkeypatch.setattr("src.soil_moisture_trio.data_sources.read_cog", lambda path: (np.ones((3, 2)), PROFILE))
+    with pytest.raises(ValueError, match="daily grid shape mismatch"):
+        loader().load(**ARGS)
 
-    def fake_download_geotiff(**kwargs):
-        return {'max_temp': (np.ones((2,), dtype=np.float32), profile)}
 
-    monkeypatch.setattr('src.soil_moisture_trio.data_sources.download_geotiff', fake_download_geotiff)
+def test_masked_or_nonfinite_day_invalidates_cell(monkeypatch):
+    mock_download(monkeypatch)
+    def read(path):
+        data = np.ma.array([[1.0, 2.0], [3.0, 4.0]], mask=False)
+        if "20240101" in path:
+            data.mask[0, 0] = True
+            data[0, 1] = np.inf
+        return data, PROFILE
+    monkeypatch.setattr("src.soil_moisture_trio.data_sources.read_cog", read)
+    result = loader().load(**ARGS)
+    assert np.isnan(result.data["max_temp"][1]).all()
+    np.testing.assert_array_equal(result.data["max_temp"][0], [3, 4])
 
-    loader = WeatherToolsSiloLoader(
-        cache_dir=None,
-        cache_max_size_mb=100,
-        overview_level=None,
-        buffer_degrees=0.0,
-    )
 
-    with pytest.raises(ValueError, match="reduce to 2D grid"):
-        loader.load(
-            variables=['max_temp'],
-            start_date=date(2024, 1, 1),
-            end_date=date(2024, 1, 1),
-            bounds=(-35.0, -34.0, 150.0, 151.0),
-            target_lats=np.array([-34.75, -34.25]),
-            target_lons=np.array([150.25, 150.75]),
-        )
+@pytest.mark.parametrize("variables", [[], ["vp"], ["daily_rain"], ["max_temp", "max_temp"]])
+def test_variables_restricted(variables):
+    with pytest.raises(ValueError, match="Only max_temp and vp_deficit"):
+        loader().load(**{**ARGS, "variables": variables})
+
+
+def test_missing_variable_payload_fails(monkeypatch):
+    mock_download(monkeypatch)
+    with pytest.raises(ValueError, match="exactly the requested"):
+        loader().load(**{**ARGS, "variables": ["max_temp", "vp_deficit"]})
+
+
+@pytest.mark.parametrize("bounds", [(-34, -35, 150, 151), (-35, -34, 151, 150)])
+def test_inverted_bounds_fail(bounds):
+    with pytest.raises(ValueError, match="must be less than"):
+        loader().load(**{**ARGS, "bounds": bounds})
+
+
+def test_inverted_dates_fail():
+    with pytest.raises(ValueError, match="end_date"):
+        loader().load(**{**ARGS, "end_date": date(2023, 1, 1)})
+
+
+def test_cache_identity_includes_bounds_buffer_and_overview(monkeypatch, tmp_path):
+    calls = mock_download(monkeypatch)
+    loader(tmp_path).load(**ARGS)
+    loader(tmp_path).load(**ARGS)
+    loader(tmp_path, buffer=0.1).load(**ARGS)
+    loader(tmp_path, overview=1).load(**ARGS)
+    loader(tmp_path).load(**{**ARGS, "bounds": (-35.00001, -34, 150, 151)})
+    paths = [call["output_dir"] for call in calls]
+    assert paths[0] == paths[1]
+    assert len(set(paths)) == 4
+    assert all(path.parent == tmp_path for path in paths)

@@ -12,9 +12,9 @@ import shutil
 import subprocess
 import sys
 import time
+import tomllib
 from dataclasses import asdict
 from datetime import datetime, timezone
-from importlib.metadata import version
 from pathlib import Path
 from typing import Any, Mapping
 
@@ -97,7 +97,9 @@ def main() -> None:
         )
 
     builder_commit = _require_clean_git_commit()
-    builder_version = version("soil-moisture-trio")
+    # This repo runs as source through uv, without an installed distribution.
+    with (Path(__file__).resolve().parents[1] / "pyproject.toml").open("rb") as stream:
+        builder_version = tomllib.load(stream)["project"]["version"]
     grid = load_canonical_grid(args.awral_grid_input)
     grid_contract = load_grid_contract(DEFAULT_GRID_CONTRACT_PATH)
     footprint = _approved_footprint(grid_contract)

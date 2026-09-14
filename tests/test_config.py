@@ -33,6 +33,26 @@ def test_default_model_weights_and_thresholds_are_valid() -> None:
             "end_date must be on or after start_date",
         ),
         (
+            {"year": 2025, "start_date": date(2026, 1, 1)},
+            "start_date must fall within retrieval year",
+        ),
+        (
+            {"year": 2025, "end_date": date(2026, 1, 1)},
+            "end_date must fall within retrieval year",
+        ),
+        (
+            {"silo_variables": ["max_temp", "vp"]},
+            "exactly max_temp and vp_deficit",
+        ),
+        (
+            {"silo_variables": ["max_temp", "vp_deficit", "max_temp"]},
+            "exactly max_temp and vp_deficit",
+        ),
+        (
+            {"silo_variables": ["max_temp"]},
+            "exactly max_temp and vp_deficit",
+        ),
+        (
             {"min_lat": -20.0, "max_lat": -30.0},
             "min_lat must be less than max_lat",
         ),

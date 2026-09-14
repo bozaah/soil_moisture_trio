@@ -1,6 +1,6 @@
 # Soil Moisture Trio — Technical Report
 
-**Version:** Sprint 13 risk methodology with Phase 5 context update | **Date:** 2026-08-14
+**Version:** Sprint 13 risk methodology with strict daily-input contract | **Date:** 2026-09-11
 **Status:** Operational risk classification; Phase 5 soil context remains non-operational
 
 ---
@@ -31,14 +31,16 @@ The pipeline uses the Australian Water Resources Assessment Landscape model (**A
 
 ### 1.2 Temperature and Vapour Pressure Deficit — SILO
 
-Heat stress and atmospheric dryness are sourced from the SILO climate dataset (Bureau of Meteorology / Queensland Department of Environment), accessed via the `weather_tools` COG loader (primary) or SILO NetCDF on AWS S3 (fallback).
+Heat stress and atmospheric dryness are sourced from the SILO climate dataset (Bureau of Meteorology / Queensland Department of Environment), accessed via daily COG retrieval through `weather_tools` or explicitly selected SILO NetCDF on AWS S3. COG failure no longer triggers an automatic switch.
 
 | Variable | SILO name | Internal name | Units | Role |
 |---|---|---|---|---|
 | Daily maximum temperature | `max_temp` | `temperature` | °C | Heat stress |
 | Vapour pressure deficit | `vp_deficit` | `vpd` | hPa | Atmospheric dryness |
 
-Values are averaged over the selected time window and spatially aligned to the AWRA-L grid.
+All inputs must cover the same complete daily window within one retrieval year. Dates must be unique and ordered. Each cell must have every requested daily value before averaging, otherwise its mean is NaN and it is excluded from risk classification. Daily soil-moisture percentiles require `relative` units and values in `[0, 1]`, with NaN for missing data. The reader never infers a percent conversion from array maxima.
+
+COG inputs are spatially aligned to AWRA-L through nearest-neighbour interpolation. The explicit NetCDF path instead requires exact coordinate equality after orientation and clipping. These stricter checks landed on 2026-09-11. They leave the stress formula unchanged but can change coverage and results where earlier runs averaged incomplete windows. Historical figures below have not been regenerated. See [data sources](data-sources.md) for the implementation contract.
 
 ### 1.3 Calibration Baseline Dataset
 

@@ -4,6 +4,14 @@ All notable changes per sprint/iteration. Format: `## [sprint] YYYY-MM-DD — Ti
 
 ---
 
+## [Hardening] 2026-09-11 — Daily inputs, builder orchestration and smaller entry docs
+
+Require complete matching daily windows, retrieval-year consistency, explicit percentile units/bounds and exact NetCDF grid agreement. Remove percent-scale guessing, the `vp` alias, automatic COG fallback and the unused first-raster-band path. Read each required SILO file without suppressing failures. Missing daily values now invalidate cells instead of shortening their averaging window. Cache identity includes buffer and overview.
+
+Builder interruption/resume tests exposed and fixed a source-only startup failure: version now comes from tracked `pyproject.toml`, not installed package metadata. Tests cover timeout, source failure, failed bundle promotion, identity rejection, real serialization, resumed-output equality and cleanup. Risk calculation and SLGA artifact schema are unchanged.
+
+The Python runner now takes one `ClassifierConfig` plus output options. Existing CLI flags remain. Entry docs and backlog link to contracts/history instead of repeating them, with word bounds and local-link tests. Verification: 166 passed, 1 authenticated test skipped, Ruff/diff checks clean. No live run. Details and compatibility limits: [session record](sessions/2026-09-11-input-builder-tightening.md).
+
 ## [Docs] 2026-09-11 — Current-state reconciliation
 
 Linked the 08-31 review-build exception from active entry docs without removing the general approval gate. Corrected B3's obsolete direct percentile cutoffs and stale build-planning status. Documented absent SWAZ artifact/grouped summaries, local-data backup limits and the distinction between implementation tests and independent scientific validation.

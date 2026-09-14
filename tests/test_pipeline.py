@@ -46,19 +46,6 @@ def _mock_real_data(with_nan: bool = False) -> dict:
     }
 
 
-def test_map_silo_variables_aliases_known_keys():
-    pipeline = DryWetClassifierPipeline(ClassifierConfig())
-    arrays = {
-        'max_temp': np.full((2, 2), 1.0, dtype=np.float32),
-        'vp_deficit': np.full((2, 2), 2.0, dtype=np.float32),
-    }
-    mapped = pipeline._map_silo_variables(arrays)
-    assert 'temperature' in mapped
-    assert 'vpd' in mapped
-    np.testing.assert_allclose(mapped['temperature'], arrays['max_temp'])
-    np.testing.assert_allclose(mapped['vpd'], arrays['vp_deficit'])
-
-
 def test_prepare_data_populates_expected_grids(monkeypatch):
     pipeline = DryWetClassifierPipeline(ClassifierConfig())
     monkeypatch.setattr(pipeline, "_load_all_real_data", lambda: _mock_real_data())
@@ -80,35 +67,6 @@ def test_prepare_data_excludes_nan_cells(monkeypatch):
     # NaN cells should be False in valid_mask_grid
     soil = pipeline.data_grids['soil_moisture']
     assert not pipeline.valid_mask_grid[np.isnan(soil)].any()
-
-
-def test_load_real_netcdf_uses_band_positions_for_time_window(monkeypatch):
-    """Raster time selection must not depend on non-sequential band labels."""
-    config = ClassifierConfig(start_date="2025-01-02", end_date="2025-01-03")
-    pipeline = DryWetClassifierPipeline(config)
-    raster = xr.DataArray(
-        np.array(
-            [
-                [[1.0, 1.0], [1.0, 1.0]],
-                [[2.0, 2.0], [2.0, 2.0]],
-                [[3.0, 3.0], [3.0, 3.0]],
-            ]
-        ),
-        dims=("band", "y", "x"),
-        coords={"band": [10, 20, 30]},
-    )
-    metadata = xr.Dataset(
-        coords={"time": np.array(["2025-01-01", "2025-01-02", "2025-01-03"], dtype="datetime64[D]")}
-    )
-
-    monkeypatch.setattr("src.soil_moisture_trio.pipeline.rio.open_rasterio", lambda *args, **kwargs: raster)
-    monkeypatch.setattr("src.soil_moisture_trio.pipeline.xr.open_dataset", lambda *args, **kwargs: metadata)
-
-    values, time_meta = pipeline._load_real_netcdf("local-raster.tif", "unused")
-
-    np.testing.assert_allclose(values, np.full((2, 2), 2.5))
-    assert time_meta["time_start"].startswith("2025-01-02")
-    assert time_meta["time_end"].startswith("2025-01-03")
 
 
 def test_pipeline_assess_risk_returns_summary(monkeypatch):

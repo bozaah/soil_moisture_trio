@@ -1,30 +1,20 @@
 # Soil Moisture Trio
 
-A rule-based drought risk monitoring pipeline for the Australian landscape. Combines AWRA-L soil moisture decile ranks, SILO maximum temperature, and SILO vapour pressure deficit into a composite stress index, then assigns categorical risk levels to each grid cell.
+A deterministic drought-risk pipeline combining AWRA-L soil-moisture percentile ranks, SILO maximum temperature and vapour-pressure deficit. It produces Low / Watch / Alert / Critical risk maps, summary JSON, PNG figures and Markdown bulletins.
 
-## Outputs
-
-| Artifact | Format | Description |
-| --- | --- | --- |
-| Risk map | NetCDF | `RiskLevel` per cell: Low / Watch / Alert / Critical |
-| Summary | JSON | Cell counts and percentages per risk band |
-| Risk plot | PNG | Two-panel: categorical map + continuous stress index |
-| Bulletin | Markdown | Policy-ready bulletin rendered from summary JSON |
-
-## Requirements
-
-- Python 3.12 via [`uv`](https://docs.astral.sh/uv/)
-- Network access to NCI THREDDS (AWRAL `sm_pct`) and AWS S3 / `weather_tools` (SILO)
+The separate SLGA static-soil builder is experimental. Operational runs do not load soil context. Current work and approval boundaries live in the [backlog](docs/backlog.md).
 
 ## Setup
 
+Requires Python 3.12+, `uv`, and network access to NCI THREDDS and public SILO S3 for live runs.
+
 ```bash
-uv sync
+uv sync --frozen --group dev
 ```
 
-## Quick Start — WA Southwest Agricultural Zone
+## Quick start: SWAZ
 
-The boundary file is locally supplied and intentionally not redistributed. Obtain the approved DPIRD boundary and place it at `data/south_west_agricultural_boundary.gpkg`; see [`data/README.md`](data/README.md).
+Obtain the approved DPIRD boundary and place it at `data/south_west_agricultural_boundary.gpkg`. It is locally supplied, not redistributed. See [local data](data/README.md).
 
 ```bash
 uv run python main.py \
@@ -34,13 +24,10 @@ uv run python main.py \
   --output-dir outputs/risk_2026_mar_SWAZ \
   --risk-output-prefix risk_2026_mar_SWAZ \
   --risk-plot-path risk_2026_mar_SWAZ.png \
-  --silo-variable max_temp \
-  --silo-variable vp_deficit \
-  --silo-cache-dir ~/.cache/soil_moisture_trio/silo_swaz \
   --boundary-gpkg data/south_west_agricultural_boundary.gpkg
 ```
 
-Then render a bulletin (all files in the same run directory):
+Then render a bulletin:
 
 ```bash
 uv run python scripts/render_bulletin.py \
@@ -50,84 +37,25 @@ uv run python scripts/render_bulletin.py \
   --region "South West Agricultural Zone"
 ```
 
-See [docs/cli-reference.md](docs/cli-reference.md) for all flags.
-
-## How It Works
-
-1. **Load** — AWRAL `sm_pct` percentile rank (0–1) + SILO `max_temp` and `vp_deficit`, clipped to bounds and averaged over the requested time window
-2. **Risk** — composite stress index: 60% soil moisture deficit (departure below median) + 25% VPD + 15% temperature, normalised against agronomic critical thresholds
-3. **Classify** — stress index thresholds assign each cell to Low / Watch / Alert / Critical; ocean and missing-data cells are masked (`-1`)
-4. **Output** — NetCDF risk map, JSON summary, PNG figures, and optional bulletin
-
-Full pipeline detail: [docs/architecture.md](docs/architecture.md) | Methodology: [docs/technical_report.md](docs/technical_report.md)
-
-## Phase 5 Development Status
-
-A separate, non-operational SLGA prototype now supports pinned AWC v2 and Depth of Soil v2 source validation, authenticated bounded COG reads, DES-capped storage-capacity integration, EPSG:3577 fractional-overlap harmonisation, tiled processing, and reviewed v1-candidate static-artifact I/O with direct DES context and immutable bundle publication. It has passed deterministic tests, a bounded authenticated 3×3 inland SWAZ multi-tile pilot, and a 5×5 Albany coastal/nodata pilot with exact warm-cache equality.
-
-The first static soil artifact is now scoped to the SWAZ buffered operational rectangle (29,016 canonical AWRA-L cells), not full WA. It has not yet been built or approved, and no soil-stratified risk summary exists. The operational drought pipeline, risk formula, thresholds, valid mask, and outputs remain unchanged and do not fetch or load SLGA data. See [docs/slga-builder-contract.md](docs/slga-builder-contract.md) and [docs/backlog.md](docs/backlog.md).
-
-**Review-only exception (31 August 2026):** Rodrigo authorised a SWAZ artifact build as input to Karen Holmes and Dennis van Gool's review. This does not approve distribution, promotion or operational use. The general gate remains in force for every other purpose. See [the recorded waiver](sessions/2026-08-31-swaz-review-build-waiver.md).
-
-**Verified 11 September 2026:** no SWAZ artifact or checkpoints exist locally. Tests: 91 passed, 1 authenticated SLGA check skipped. Ruff clean. No fresh network run or independent drought-impact validation performed. March SWAZ risk bundles and small SLGA engineering pilots exist locally under ignored `outputs/`. Git does not back up those outputs or local source data.
-
-## Project Structure
-
-```text
-src/soil_moisture_trio/
-  config.py        ClassifierConfig — all tunable parameters (Pydantic)
-  pipeline.py      DryWetClassifierPipeline — data loading and risk assessment
-  data_sources.py  WeatherToolsSiloLoader — SILO COG fetcher + persistent cache
-  risk.py          Composite stress index, RiskLevel enum, NetCDF/JSON output
-  plot.py          PNG outputs
-  slga/            Phase 5 static-soil prototype; separate from risk runtime
-templates/         Jinja2 output templates
-scripts/           Standalone utilities (bulletin renderer and bounded SLGA pilot)
-tests/             pytest suite (mocks network I/O)
-docs/              Reference documentation
-sessions/          Per-session notes and working log
-```
-
-## Configuration
-
-All thresholds live in `ClassifierConfig` (`src/.../config.py`). Key defaults:
-
-| Parameter | Default | Note |
-| --- | --- | --- |
-| `moisture_threshold` | 0.50 | Dryness reference — departure below climatological median |
-| `critical_temp_threshold` | 40.0 °C | Normalisation ceiling for temperature factor |
-| `critical_vpd_threshold` | 32.0 hPa | Normalisation ceiling for VPD factor (3.2 kPa) |
-| `dryness_weight` / `vpd_weight` / `temperature_weight` | 0.60 / 0.25 / 0.15 | Validated to sum to 1 |
-| `watch_risk_threshold` / `alert_risk_threshold` / `critical_risk_threshold` | 0.35 / 0.60 / 0.85 | Validated in strictly increasing order |
-| `silo_cache_dir` | `~/.cache/soil_moisture_trio/silo` | Persistent tile cache; created automatically |
-
-## SILO Cache
-
-SILO GeoTIFF tiles are cached under `~/.cache/soil_moisture_trio/silo` by default and persist across runs. The loader now creates bbox-scoped subdirectories inside that cache root, so repeated runs for the same bounds reuse tiles without cross-bbox collisions.
+The default cache persists under `~/.cache/soil_moisture_trio/silo/`, keyed by bounds, buffer and overview. Every requested day must be present. Missing files fail the run, a missing daily value invalidates that cell, and COG errors do not silently switch data sources. For live runs, keep the end date at least two days behind today. Full input rules: [data sources](docs/data-sources.md).
 
 ## Verification
 
 ```bash
-uv sync --frozen --group dev
-uv run pytest -q
-uv run ruff check
+uv run --frozen pytest -q
+uv run --frozen ruff check
 ```
 
-The networked moisture-range utility is intentionally outside the test suite:
+Default tests avoid source-service access. The authenticated SLGA check is opt-in. Tests verify implementation, not independent drought-impact skill. `data/` and `outputs/` are gitignored and need backup outside Git.
 
-```bash
-uv run python scripts/moisture_ranges_diagnostic.py
-```
+## Where things live
 
-## Docs
+| Path | Purpose |
+|---|---|
+| `main.py` | CLI and `run_pipeline(ClassifierConfig(...), output_dir=..., ...)` |
+| `src/soil_moisture_trio/{config,pipeline,data_sources,risk,plot}.py` | Validated configuration, daily inputs, risk calculation and figures |
+| `src/soil_moisture_trio/slga/` | Separate static-soil retrieval, harmonisation, artifact I/O and checkpoints |
+| `scripts/` | Bulletin renderer, moisture diagnostic, bounded SLGA pilot and explicit builder |
+| `tests/` | Deterministic regression, failure-path and orchestration tests |
 
-| Doc | Contents |
-| --- | --- |
-| [docs/technical_report.md](docs/technical_report.md) | Full methodology: data sources, stress index, thresholds, scientific rationale |
-| [docs/architecture.md](docs/architecture.md) | Pipeline flow, data contract, spatial handling |
-| [docs/data-sources.md](docs/data-sources.md) | AWRAL/SILO sources, units, cache |
-| [docs/cli-reference.md](docs/cli-reference.md) | All operational CLI flags |
-| [docs/slga-evidence-review.md](docs/slga-evidence-review.md) | Soil-property evidence, product selection, and scientific limits |
-| [docs/slga-builder-contract.md](docs/slga-builder-contract.md) | B25b source, harmonisation, artifact, and failure contract |
-| [docs/backlog.md](docs/backlog.md) | Open issues and next steps |
-| [CHANGELOG.md](CHANGELOG.md) | Per-sprint changes |
+Use the [CLI reference](docs/cli-reference.md) for all flags and build commands, [architecture](docs/architecture.md) for data flow, and [technical report](docs/technical_report.md) for risk methodology. Soil requirements belong to the [evidence review](docs/slga-evidence-review.md) and [builder contract](docs/slga-builder-contract.md). Historical evidence stays in [CHANGELOG](CHANGELOG.md) and `sessions/`.

@@ -12,7 +12,7 @@ The pipeline's primary soil-moisture input is the AWRA-L v7 `sm_pct` decile prod
 - Grid: daily `(time, latitude, longitude)` at 0.05° resolution
 - Pipeline handling: the selected date window is averaged down to a 2D `(lat, lon)` grid
 
-`_normalize_sm_pct_decile()` retains a defensive `max > 1.1` check and converts to `0–1` if needed, but the expected operational behavior is already `0–1`.
+The reader requires `units="relative"` and checks daily values before averaging. Finite percentiles outside `[0, 1]` and infinities fail. NaN denotes missing data. There is no magnitude-based percent conversion. The local pinned 2025 source confirms this units contract.
 
 ### Required Percentile-Rank Product
 
@@ -64,23 +64,20 @@ SILO provides the two atmospheric inputs used by the composite stress index.
 
 ### Primary Path: weather_tools COG Loader
 
-`WeatherToolsSiloLoader` wraps `weather_tools.silo_geotiff.download_geotiff()` and is the default loading path (`use_silo_cog_loader=True`).
+`WeatherToolsSiloLoader` uses `weather_tools.silo_geotiff.download_geotiff(read_files=False)` for retrieval, then reads each required daily file through `read_cog`. The dependency's stack reader is not used because it silently skips failed reads.
 
-Behavior:
+The returned filenames must match the requested daily sequence exactly, including the variable. Missing, duplicate, reordered or unexpected files fail before averaging. Each daily read must succeed on a consistent CRS, transform and shape. Spatial subsets use the requested bbox plus optional `silo_buffer_degrees`, then nearest-neighbour interpolation onto AWRA-L coordinates.
 
-- Requests only the selected variables and date range.
-- Builds a polygon from the requested bbox, optionally expanded by `silo_buffer_degrees`.
-- Reads GeoTIFF subsets, reduces the time stack with `np.nanmean`, and regrids to the target AWRAL coordinates using nearest-neighbor interpolation.
-- Returns explicit `time_start` / `time_end` metadata for the requested SILO window.
+Daily values average with `np.mean`, not `np.nanmean`: a missing/nonfinite day invalidates that cell. Only a complete file sequence receives requested-window metadata.
 
-### Fallback Path: SILO NetCDF
+### Explicit Alternative: SILO NetCDF
 
-If the COG loader fails, or if the run is started with `--no-silo-cog-loader`, the pipeline falls back to the annual SILO NetCDF files on public AWS S3:
+COG failures propagate without fallback. `--no-silo-cog-loader` explicitly selects the annual SILO NetCDF files on public AWS S3:
 
 - `https://s3-ap-southeast-2.amazonaws.com/silo-open-data/Official/annual/max_temp/{YEAR}.max_temp.nc`
 - `https://s3-ap-southeast-2.amazonaws.com/silo-open-data/Official/annual/vp_deficit/{YEAR}.vp_deficit.nc`
 
-The pipeline sets `AWS_NO_SIGN_REQUEST=YES` automatically for these public buckets.
+The pipeline sets `AWS_NO_SIGN_REQUEST=YES` for these public buckets. Each variable must provide a daily `(time, latitude, longitude)` cube. The conventional `lat`/`lon` dimension names are normalised to those labels without changing coordinates. The reader validates and orients each dataset's own coordinates before clipping, then requires exact equality with the selected AWRA-L coordinates. Same-shaped grids with shifted coordinates fail rather than being combined positionally. No implicit NetCDF regridding occurs.
 
 ## SILO Cache Layout
 
@@ -90,7 +87,7 @@ The default cache root is:
 ~/.cache/soil_moisture_trio/silo
 ```
 
-The loader now scopes cached GeoTIFFs into a bbox-specific subdirectory:
+The loader scopes cached GeoTIFFs by exact bounds, buffer and overview settings:
 
 ```text
 ~/.cache/soil_moisture_trio/silo/bbox_<hash>/
@@ -99,8 +96,9 @@ The loader now scopes cached GeoTIFFs into a bbox-specific subdirectory:
 This means:
 
 - repeated runs for the same bounds reuse the same cache contents
-- different bounding boxes do not collide inside the same cache root
-- cache pruning still applies across the full cache tree via `silo_cache_max_size_mb`
+- changed bounds, buffer or overview select a different cache directory because files are already clipped/resampled
+- the 09-11 key change does not reuse old bbox-only cache entries or delete them explicitly
+- cache pruning applies across the full cache tree via `silo_cache_max_size_mb`
 
 Override the cache root with:
 
@@ -111,5 +109,7 @@ Override the cache root with:
 ## Operational Constraints
 
 - SILO is typically available with a 1 to 2 day lag. Set `--end-date` no later than today minus two days for live runs.
-- All three inputs must overlap in space and time. If any of soil moisture, temperature, or VPD is missing at a cell, that cell is marked invalid and excluded from summaries.
-- The pipeline requires `max_temp` and `vp_deficit` to be present in the SILO payload. Missing variables raise a clear `ValueError`.
+- All three inputs use the same inclusive daily window, wholly within the retrieval year. NetCDF time coordinates must be unique, ordered daily midnights, with every requested date present. Missing endpoints, internal gaps and duplicate dates fail. Metadata must agree across inputs, not describe their union.
+- A cell missing any requested daily soil-moisture, temperature or VPD value is invalid and excluded from summaries. Complete-cell means retain the existing source precision. This stricter coverage rule may change historical results where the old code averaged partial windows.
+- Operational configuration requires exactly `max_temp` and `vp_deficit`, once each. `vp` is vapour pressure, not vapour-pressure deficit, and is rejected.
+- These contracts have deterministic tests. No fresh source-service run has yet verified this stricter path against live data.

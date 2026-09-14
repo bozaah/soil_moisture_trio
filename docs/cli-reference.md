@@ -7,8 +7,12 @@ Run with: `uv run python main.py [OPTIONS]`
 | Flag | Default | Description |
 |---|---|---|
 | `--year INT` | 2024 | Data year for AWRAL and SILO |
-| `--start-date DATE` | first timestep | Start of averaging window (YYYY-MM-DD) |
-| `--end-date DATE` | start-date | End of averaging window (YYYY-MM-DD) |
+| `--start-date DATE` | 1 January of `--year` | Start of averaging window (YYYY-MM-DD) |
+| `--end-date DATE` | explicit start-date, otherwise 31 December | End of averaging window (YYYY-MM-DD) |
+
+Both dates must fall within `--year`. Every requested day must be present exactly once. With no dates, the request is the full retrieval year, not whatever days happen to be available.
+
+Python callers pass `run_pipeline(ClassifierConfig(...), output_dir=..., risk_output_prefix=..., risk_plot_path=...)`. CLI names are unchanged. The runner no longer repeats individual model arguments.
 
 ## Risk Model
 
@@ -47,41 +51,15 @@ Date windows must satisfy `start <= end`. Manual bounds must satisfy `min_lat < 
 
 | Flag | Default | Description |
 |---|---|---|
-| `--silo-variable NAME` | `max_temp`, `vp_deficit` | Repeatable; SILO variable names |
-| `--use-silo-cog-loader` | auto/default on | Explicitly prefer the `weather_tools` GeoTIFF path |
-| `--no-silo-cog-loader` | — | Fall back to NetCDF downloads |
+| `--silo-variable NAME` | `max_temp`, `vp_deficit` | If supplied, must specify exactly these two variables, once each. `vp` is not a deficit alias |
+| `--use-silo-cog-loader` | on | Use `weather_tools` daily GeoTIFF retrieval with strict date/file checks |
+| `--no-silo-cog-loader` | — | Explicit NetCDF path with exact coordinate checks. COG failures never switch paths automatically |
 | `--silo-cache-dir PATH` | `~/.cache/soil_moisture_trio/silo` | Cache root for GeoTIFF downloads; bbox-specific subdirectories are created automatically |
 | `--silo-cache-max-mb INT` | 200 | Cache size limit in MB |
 | `--silo-overview-level INT` | — | Lower-res read (e.g., 1, 2) for testing |
 | `--silo-buffer-deg FLOAT` | 0.0 | Bounding box buffer in degrees |
 
-## Example — SWAZ March 2026
-
-This example requires the locally supplied DPIRD boundary at `data/south_west_agricultural_boundary.gpkg`; see [`data/README.md`](../data/README.md).
-
-```bash
-uv run python main.py \
-  --year 2026 \
-  --start-date 2026-03-01 \
-  --end-date 2026-03-23 \
-  --output-dir outputs/risk_2026_mar_SWAZ \
-  --risk-output-prefix risk_2026_mar_SWAZ \
-  --risk-plot-path risk_2026_mar_SWAZ.png \
-  --silo-variable max_temp \
-  --silo-variable vp_deficit \
-  --silo-cache-dir ~/.cache/soil_moisture_trio/silo_swaz \
-  --boundary-gpkg data/south_west_agricultural_boundary.gpkg
-```
-
-Then render the bulletin:
-
-```bash
-uv run python scripts/render_bulletin.py \
-  --summary-json outputs/risk_2026_mar_SWAZ/risk_2026_mar_SWAZ_summary.json \
-  --map-png outputs/risk_2026_mar_SWAZ/risk_2026_mar_SWAZ.png \
-  --output outputs/risk_2026_mar_SWAZ/bulletin_2026_mar_SWAZ.md \
-  --region "South West Agricultural Zone"
-```
+The runnable SWAZ example and bulletin command live in the [README quick start](../README.md#quick-start-swaz). Input failure behaviour and cache identity live in [data sources](data-sources.md).
 
 ## Bulletin Renderer (`scripts/render_bulletin.py`)
 
@@ -104,7 +82,7 @@ uv run python -m scripts.slga_build_swaz_artifact \
   --max-runtime-seconds 21600
 ```
 
-It is hard-scoped to the exact 156×186 SWAZ footprint, 10-row resumable stripes, 10×10 target tiles, and a 256 MiB cache. It requires a clean Git worktree so the sidecar identifies exact committed code. Completed stripe directories are atomic, checksum-verified, credential-free, and contract-bound; incompatible resume state fails. The six-hour limit is checked between completed stripes, which remain for the next `--resume` invocation. After exact assembly, the command publishes a fail-if-present repo-local immutable bundle containing NetCDF, sidecar, and checksummed `build_report.json`; checkpoints are removed only after verified publication unless `--keep-checkpoints` is set.
+It is hard-scoped to the exact 156×186 SWAZ footprint, 10-row resumable stripes, 10×10 target tiles, and a 256 MiB cache. It requires a clean Git worktree so the sidecar identifies exact committed code. Completed stripe directories are atomic, checksum-verified, credential-free, and contract-bound. Incompatible resume state fails. Keep the same clean commit throughout build/resume: even a documentation-only commit changes checkpoint identity. The builder reads its project version from tracked `pyproject.toml`, so no installed package metadata is required. The six-hour limit is checked between completed stripes, which remain for the next `--resume` invocation. After exact assembly, the command publishes a fail-if-present repo-local immutable bundle containing NetCDF, sidecar, and checksummed `build_report.json`; checkpoints are removed only after verified publication unless `--keep-checkpoints` is set.
 
 The command is implemented but must not be run until external soil-science and distribution review explicitly approves the SWAZ review build. A full-WA static artifact will not be built in this phase. See [`slga-builder-contract.md`](slga-builder-contract.md).
 

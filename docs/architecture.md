@@ -4,15 +4,19 @@
 
 ```text
 main.py
-  -> build ClassifierConfig from CLI flags
+  -> build one validated ClassifierConfig from CLI flags
+  -> run_pipeline(config, output options)
   -> DryWetClassifierPipeline.prepare_data()
        -> optionally derive bbox from --boundary-gpkg (+0.1° buffer)
        -> load AWRAL sm_pct decile product from NCI THREDDS
-       -> load SILO max_temp + vp_deficit via weather_tools COG loader
-          -> fall back to SILO annual NetCDF if COG loading fails or is disabled
-       -> align all grids to ascending AWRAL lat/lon coordinates
+       -> require every requested daily timestamp and percentile units/bounds
+       -> retrieve SILO max_temp + vp_deficit daily files via weather_tools
+          -> verify filenames, read each day without suppressing failures
+          -> OR use explicitly selected SILO NetCDF, verifying its own coordinates
+       -> orient coordinates ascending and verify/regrid against the AWRA-L grid
        -> clip to requested bounds
-       -> build valid mask from finite soil moisture / temperature / VPD cells
+       -> average complete per-cell daily windows, preserving missing-day exclusions
+       -> build valid mask from finite soil moisture / temperature / VPD means
        -> if boundary_gpkg is set, mask out cells outside the polygon
   -> DryWetClassifierPipeline.assess_risk()
        -> compute continuous stress index
@@ -60,7 +64,7 @@ approved immutable artifact
   -> separate soil-summary mask and grouped summaries
 ```
 
-The build foundations and writer/loader are implemented and deterministically tested. A live 3×3 inland SWAZ multi-tile pilot and Albany coastal/nodata pilots up to 10×10 cells have exercised all 18 sources. Albany found 0–1 source coverage; tested reverse orders were exact and warm-cache-only. A controlled 100-cell comparison selected 10×10 target tiles with a 256 MiB cache as the provisional SWAZ production candidate, subject to final build planning and review. The first production artifact is scoped to the exact 156×186 (29,016-cell) canonical AWRA-L rectangle covering the approved SWAZ boundary’s +0.1° operational bbox; it will not be a full-WA artifact. No approved artifact has been built. Normal drought runs never retrieve, rebuild, or load SLGA data, and no soil grouping or minimum coverage threshold has been approved.
+Normal drought runs never retrieve, rebuild or load SLGA data. The builder targets the SWAZ rectangle, not full WA. Artifact requirements and measured pilot limits belong to the [builder contract](slga-builder-contract.md). Current completion/approval status belongs to the [backlog](backlog.md).
 
 The invariant for later integration is:
 
@@ -88,7 +92,7 @@ All operational risk-analysis grids are 2D `(lat, lon)` arrays after time averag
 
 `prepare_data()` marks a cell valid only when:
 
-1. `soil_moisture`, `temperature`, and `vpd` are all finite.
+1. `soil_moisture`, `temperature`, and `vpd` have finite means over every requested day. A missing/nonfinite daily value makes that cell's mean NaN.
 2. The cell falls inside the optional boundary polygon when `--boundary-gpkg` is used.
 
 Invalid cells are never imputed. They propagate as:
@@ -123,7 +127,7 @@ Risk bands use validated `ClassifierConfig` thresholds. Defaults are:
 | `0.60–<0.85` | Alert |
 | `>= 0.85` | Critical |
 
-Config validation requires weights to sum to 1, risk thresholds to be strictly ordered, date windows not to be inverted, and minimum spatial bounds to be less than maximum bounds.
+Config validation requires weights to sum to 1, ordered risk thresholds, an ordered date window within the retrieval year, exactly the two supported SILO variables, and ordered spatial bounds. Input validation before averaging follows [data sources](data-sources.md).
 
 ## Output Contract
 
@@ -139,5 +143,5 @@ Config validation requires weights to sum to 1, risk thresholds to be strictly o
 
 - `--output-dir` is the recommended run layout. When set, `--risk-output-prefix` and `--risk-plot-path` are interpreted as basenames inside that directory.
 - `--boundary-gpkg` is the preferred way to run named regions such as SWAZ. It derives the bbox automatically and applies a polygon mask after loading.
-- The weather-tools cache is scoped by a hash of the requested bounds under `silo_cache_dir`, which prevents cross-bbox reuse within the same cache root.
+- The weather-tools cache identity includes bounds, buffer and overview under `silo_cache_dir`. COG failures propagate without automatic NetCDF fallback.
 - SILO availability still lags by roughly 1 to 2 days, so operational runs should keep `--end-date` at most two days behind today.

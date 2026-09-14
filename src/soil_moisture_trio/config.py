@@ -5,6 +5,8 @@ from typing import List, Optional, Self
 
 from pydantic import BaseModel, Field, model_validator
 
+SILO_VARIABLES = ("max_temp", "vp_deficit")
+
 
 class ClassifierConfig(BaseModel):
     # --- Stress component references ---
@@ -57,9 +59,8 @@ class ClassifierConfig(BaseModel):
 
     # --- SILO loader ---
     silo_variables: List[str] = Field(
-        default_factory=lambda: ["max_temp", "vp_deficit"],
-        min_length=1,
-        description="SILO variables to request via weather_tools",
+        default_factory=lambda: list(SILO_VARIABLES),
+        description="Exactly max_temp and vp_deficit, once each",
     )
     use_silo_cog_loader: bool = Field(True, description="Fetch SILO data via weather_tools COG loader")
     silo_cache_dir: Path = Field(
@@ -90,12 +91,26 @@ class ClassifierConfig(BaseModel):
             if self.end_date < self.start_date:
                 raise ValueError("end_date must be on or after start_date.")
 
+        for name in ("start_date", "end_date"):
+            value = getattr(self, name)
+            if value is not None and value.year != self.year:
+                raise ValueError(f"{name} must fall within retrieval year {self.year}.")
+
+        if len(self.silo_variables) != 2 or set(self.silo_variables) != set(SILO_VARIABLES):
+            raise ValueError("silo_variables must contain exactly max_temp and vp_deficit, once each.")
+
         if self.min_lat >= self.max_lat:
             raise ValueError("min_lat must be less than max_lat.")
         if self.min_lon >= self.max_lon:
             raise ValueError("min_lon must be less than max_lon.")
 
         return self
+
+    def date_range(self) -> tuple[date, date]:
+        """One shared inclusive window for AWRA-L and SILO."""
+        start = self.start_date or date(self.year, 1, 1)
+        end = self.end_date or self.start_date or date(self.year, 12, 31)
+        return start, end
 
     def risk_model_parameters(self) -> dict[str, float]:
         """Return the model parameters that define decision-support outputs."""
