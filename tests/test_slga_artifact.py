@@ -20,6 +20,7 @@ from src.soil_moisture_trio.slga.artifact import (
     SoilArtifactData,
     SoilArtifactError,
     load_soil_artifact,
+    load_soil_context,
     write_soil_artifact,
     write_soil_artifact_bundle,
 )
@@ -553,3 +554,93 @@ def test_repeated_writes_are_numerically_reproducible(tmp_path):
         datasets.append(_load(artifact, sidecar, source_manifest, grid_contract))
 
     xr.testing.assert_identical(datasets[0], datasets[1])
+
+
+def _bundle_from_written(tmp_path: Path) -> tuple[Path, Path, Path]:
+    source_manifest, grid_contract, grid = _write_contracts(tmp_path)
+    bundle = tmp_path / "bundle"
+    write_soil_artifact_bundle(
+        bundle,
+        _data(),
+        _metadata(grid),
+        source_manifest_path=source_manifest,
+        grid_contract_path=grid_contract,
+    )
+    return bundle, source_manifest, grid_contract
+
+
+@pytest.mark.parametrize("flip_lat", [False, True])
+@pytest.mark.parametrize("flip_lon", [False, True])
+def test_load_soil_context_returns_run_orientation(tmp_path, flip_lat, flip_lon):
+    bundle, source_manifest, grid_contract = _bundle_from_written(tmp_path)
+    run_lat = LATITUDE[::-1] if flip_lat else LATITUDE
+    run_lon = LONGITUDE[::-1] if flip_lon else LONGITUDE
+
+    subset = load_soil_context(
+        bundle,
+        run_lat,
+        run_lon,
+        source_manifest_path=source_manifest,
+        grid_contract_path=grid_contract,
+    )
+    native = load_soil_artifact(
+        bundle / DEFAULT_ARTIFACT_FILENAME,
+        bundle / DEFAULT_SIDECAR_FILENAME,
+        LATITUDE,
+        LONGITUDE,
+        source_manifest_path=source_manifest,
+        grid_contract_path=grid_contract,
+    )
+
+    np.testing.assert_array_equal(subset.latitude, run_lat)
+    np.testing.assert_array_equal(subset.longitude, run_lon)
+    expected = native.awc_storage_capacity_mm.values
+    if flip_lat:
+        expected = expected[:, ::-1, :]
+    if flip_lon:
+        expected = expected[:, :, ::-1]
+    np.testing.assert_array_equal(subset.awc_storage_capacity_mm.values, expected)
+    assert set(subset.data_vars) == set(native.data_vars)
+
+
+def test_load_soil_context_rejects_non_grid_requests(tmp_path):
+    bundle, source_manifest, grid_contract = _bundle_from_written(tmp_path)
+    with pytest.raises(SoilArtifactError):
+        load_soil_context(
+            bundle,
+            LATITUDE[::2],
+            LONGITUDE,
+            source_manifest_path=source_manifest,
+            grid_contract_path=grid_contract,
+        )
+    with pytest.raises(SoilArtifactError):
+        load_soil_context(
+            bundle,
+            LATITUDE[:1],
+            LONGITUDE,
+            source_manifest_path=source_manifest,
+            grid_contract_path=grid_contract,
+        )
+
+
+REAL_BUNDLE = Path("data/processed/slga_awral/slga_awc_des_awral_swaz_0p05deg_v1")
+REAL_RISK = Path(
+    "outputs/risk_2026_mar_SWAZ_boundary_2026-03-26/risk_2026_mar_SWAZ_boundary_2026-03-26.nc"
+)
+
+
+@pytest.mark.skipif(
+    not (REAL_BUNDLE / DEFAULT_ARTIFACT_FILENAME).is_file() or not REAL_RISK.is_file(),
+    reason="local SWAZ review bundle and March risk output not present",
+)
+def test_real_swaz_bundle_aligns_to_march_risk_grid():
+    with xr.open_dataset(REAL_RISK) as risk:
+        lats = risk.lat.values.copy()
+        lons = risk.lon.values.copy()
+        valid = risk.risk_level.values >= 0
+    subset = load_soil_context(REAL_BUNDLE, lats, lons)
+    np.testing.assert_array_equal(subset.latitude, lats)
+    np.testing.assert_array_equal(subset.longitude, lons)
+    soil_finite = np.isfinite(subset.awc_storage_capacity_mm.isel(storage_case=0).values)
+    uncovered = int((valid & ~soil_finite).sum())
+    assert uncovered <= 1, f"{uncovered} risk-valid cells without soil values"

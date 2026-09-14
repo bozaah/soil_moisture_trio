@@ -352,6 +352,49 @@ def load_soil_artifact(
         ).load()
 
 
+def load_soil_context(
+    bundle_dir: Path,
+    run_latitude: np.ndarray,
+    run_longitude: np.ndarray,
+    *,
+    artifact_filename: str = DEFAULT_ARTIFACT_FILENAME,
+    sidecar_filename: str = DEFAULT_SIDECAR_FILENAME,
+    source_manifest_path: Path = DEFAULT_SOURCE_MANIFEST_PATH,
+    grid_contract_path: Path = DEFAULT_GRID_CONTRACT_PATH,
+) -> xr.Dataset:
+    """Load the verified artifact subset oriented to a drought run's coordinate order.
+
+    The artifact stores latitude descending. Operational runs return latitude
+    ascending. Either order is accepted for both axes; the request is matched
+    against the artifact in artifact order and the result is flipped back so its
+    coordinates equal ``run_latitude``/``run_longitude`` element for element.
+    """
+    bundle = Path(bundle_dir)
+    latitude = np.asarray(run_latitude, dtype=np.float64)
+    longitude = np.asarray(run_longitude, dtype=np.float64)
+    if latitude.ndim != 1 or longitude.ndim != 1 or latitude.size < 2 or longitude.size < 2:
+        raise SoilArtifactError("Run coordinates must be 1-D with at least two values per axis.")
+    flip_latitude = bool(latitude[0] < latitude[-1])
+    flip_longitude = bool(longitude[0] > longitude[-1])
+    subset = load_soil_artifact(
+        bundle / artifact_filename,
+        bundle / sidecar_filename,
+        latitude[::-1] if flip_latitude else latitude,
+        longitude[::-1] if flip_longitude else longitude,
+        source_manifest_path=source_manifest_path,
+        grid_contract_path=grid_contract_path,
+    )
+    if flip_latitude:
+        subset = subset.isel(latitude=slice(None, None, -1))
+    if flip_longitude:
+        subset = subset.isel(longitude=slice(None, None, -1))
+    if not np.array_equal(subset.latitude.values, latitude) or not np.array_equal(
+        subset.longitude.values, longitude
+    ):
+        raise SoilArtifactError("Loaded soil subset does not match the run grid exactly.")
+    return subset
+
+
 def _build_dataset(
     data: SoilArtifactData,
     metadata: ArtifactBuildMetadata,
