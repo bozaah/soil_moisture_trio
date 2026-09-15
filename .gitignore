@@ -1,9 +1,18 @@
-__pycache__
-/.pytest_cache/
+# Python
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.ruff_cache/
+.venv/
 .python-version
-AGENTS.md
-/tests/*
-/outputs/
-uv.lock
-*html
-/catboost_info/
+
+# Local tooling
+.claude/
+
+# Generated products
+outputs/
+.DS_Store
+
+# Large or locally supplied data
+data/*
+!data/README.md

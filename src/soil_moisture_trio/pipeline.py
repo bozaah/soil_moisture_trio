@@ -1,27 +1,51 @@
+import logging
 import os
-from datetime import date
 from typing import Any, Dict, Optional
 
 import numpy as np
 import pandas as pd
-import rioxarray as rio
-from catboost import CatBoostClassifier, Pool
 import xarray as xr
 
 from src.soil_moisture_trio.config import ClassifierConfig
-from src.soil_moisture_trio.data_sources import WeatherToolsSiloLoader, WeatherToolsResult
+from src.soil_moisture_trio.data_sources import WeatherToolsSiloLoader
 from src.soil_moisture_trio.risk import assess_risk_levels
 
-# Main Pipeline Class
+LOGGER = logging.getLogger(__name__)
+
+
 class DryWetClassifierPipeline:
     def __init__(self, config: Optional[ClassifierConfig] = None):
-        self.config = config or ClassifierConfig()
-        self.model: Optional[CatBoostClassifier] = None
+        config = config or ClassifierConfig()
+        if config.boundary_gpkg is not None:
+            config = self._derive_bounds_from_gpkg(config)
+        self.config = config
         self.valid_mask_grid: Optional[np.ndarray] = None
-        self.valid_mask_flat: Optional[np.ndarray] = None
         self.time_metadata: Optional[Dict[str, str]] = None
         self._silo_loader: Optional[WeatherToolsSiloLoader] = None
-        print(f"Pipeline initialized with config: {self.config.model_dump()}")
+        LOGGER.info("Pipeline initialized with config: %s", self.config.model_dump())
+
+    @staticmethod
+    def _derive_bounds_from_gpkg(config: ClassifierConfig, buffer: float = 0.1) -> ClassifierConfig:
+        """Derive and validate the boundary's buffered bounds."""
+        import geopandas as gpd
+        gdf = gpd.read_file(config.boundary_gpkg).to_crs("EPSG:4326")
+        minx, miny, maxx, maxy = gdf.total_bounds
+        return ClassifierConfig.model_validate({
+            **config.model_dump(),
+            "min_lat": round(miny - buffer, 6),
+            "max_lat": round(maxy + buffer, 6),
+            "min_lon": round(minx - buffer, 6),
+            "max_lon": round(maxx + buffer, 6),
+        })
+
+    def _build_polygon_mask(self, lats: np.ndarray, lons: np.ndarray) -> np.ndarray:
+        """True for cells whose centre falls inside the boundary polygon."""
+        import geopandas as gpd
+        from shapely import contains_xy
+        gdf = gpd.read_file(self.config.boundary_gpkg).to_crs("EPSG:4326")
+        union_geom = gdf.union_all()
+        lon2d, lat2d = np.meshgrid(lons, lats)
+        return contains_xy(union_geom, lon2d.flatten(), lat2d.flatten()).reshape(lon2d.shape)
 
     def _get_silo_loader(self) -> WeatherToolsSiloLoader:
         if self._silo_loader is None:
@@ -32,472 +56,156 @@ class DryWetClassifierPipeline:
                 buffer_degrees=self.config.silo_buffer_degrees,
             )
         return self._silo_loader
-    
-    def _align_lat_lon(
-        self,
-        data_arrays: Dict[str, np.ndarray],
-        lats: np.ndarray,
-        lons: np.ndarray,
-    ) -> tuple[Dict[str, np.ndarray], np.ndarray, np.ndarray]:
-        """Ensure latitude/longitude are ascending and clip to config bounds."""
-        aligned = {}
-        lat_array = np.array(lats)
-        lon_array = np.array(lons)
-        
-        lat_desc = lat_array[0] > lat_array[-1]
-        lon_desc = lon_array[0] > lon_array[-1]
-        
-        for key, arr in data_arrays.items():
-            temp_arr = arr.copy()
-            # Determine spatial axes: assume the last two axes are (lat, lon).
-            lat_axis = -2
-            lon_axis = -1
-            if lat_desc:
-                temp_arr = np.flip(temp_arr, axis=lat_axis)
-            if lon_desc:
-                temp_arr = np.flip(temp_arr, axis=lon_axis)
-            aligned[key] = temp_arr
-        
-        if lat_desc:
-            lat_array = lat_array[::-1]
-        if lon_desc:
-            lon_array = lon_array[::-1]
-        
-        lat_mask = (lat_array >= self.config.min_lat) & (lat_array <= self.config.max_lat)
-        lon_mask = (lon_array >= self.config.min_lon) & (lon_array <= self.config.max_lon)
-        if not lat_mask.any() or not lon_mask.any():
-            raise ValueError("Clipping bounds produced an empty grid. Adjust min/max lat/lon.")
-        
-        lat_indices = np.where(lat_mask)[0]
-        lon_indices = np.where(lon_mask)[0]
 
-        for key in aligned:
-            arr = aligned[key]
-            # If array is 2D (lat, lon), use np.ix_. If it has leading dims
-            # (e.g., band, lat, lon), take along the last two axes safely.
-            if arr.ndim == 2:
-                aligned[key] = arr[np.ix_(lat_indices, lon_indices)]
-            elif arr.ndim > 2:
-                # take along the latitude axis (-2) then longitude axis (-1)
-                tmp = np.take(arr, lat_indices, axis=-2)
-                tmp = np.take(tmp, lon_indices, axis=-1)
-                aligned[key] = tmp
-            else:
-                aligned[key] = arr
-        
-        return aligned, lat_array[lat_indices], lon_array[lon_indices]
-    
     def _determine_time_window(self, time_values: np.ndarray) -> tuple[slice, Dict[str, str]]:
-        if time_values.size == 0:
-            return slice(None), {}
-        pd_times = pd.to_datetime(time_values)
-        start_target = pd.Timestamp(self.config.start_date) if self.config.start_date else pd_times[0]
-        end_target = pd.Timestamp(self.config.end_date) if self.config.end_date else (pd.Timestamp(self.config.start_date) if self.config.start_date else pd_times[-1])
-        if end_target < start_target:
-            end_target = start_target
-        mask = (pd_times >= start_target) & (pd_times <= end_target)
-        if not mask.any():
-            raise ValueError(f"No data found between {start_target} and {end_target}.")
-        indices = np.where(mask)[0]
-        time_slice = slice(indices[0], indices[-1] + 1)
-        metadata = {
-            'time_start': pd_times[indices[0]].isoformat(),
-            'time_end': pd_times[indices[-1]].isoformat(),
-        }
-        return time_slice, metadata
-
-    def _load_real_netcdf(self, file_path: str, var_name: str) -> tuple[np.ndarray, Dict[str, str]]:
-        """Load a single variable from NetCDF and average over the requested time window."""
-        print(f"Loading {var_name} from {file_path}...")
-
-        if file_path.startswith('s3://') or file_path.startswith('https://s3'):
-            os.environ['AWS_NO_SIGN_REQUEST'] = 'YES'
-            os.environ['AWS_REQUEST_PAYER'] = 'requester'
-            os.environ['GDAL_DISABLE_READDIR_ON_OPEN'] = 'EMPTY_DIR'
-            os.environ['GDAL_MAX_RAW_BLOCK_CACHE_SIZE'] = '200000000'
-            os.environ['GDAL_SWATH_SIZE'] = '200000000'
-            os.environ['VSI_CURL_CACHE_SIZE'] = '200000000'
-            os.environ['GDAL_SKIP'] = 'netCDF'
-
-        if 'thredds.nci.org.au' in file_path:
-            with xr.open_dataset(file_path) as ds:
-                data_array = ds[var_name]
-                time_meta = {}
-                if 'time' in data_array.dims:
-                    time_slice, time_meta = self._determine_time_window(ds['time'].values)
-                    data_array = data_array.isel(time=time_slice).mean(dim='time')
-                data = data_array.values
-            return data, time_meta
-
-        with rio.open_rasterio(file_path, chunks={'band': 1, 'y': 512, 'x': 512}) as da:
-            data_array = da.load()
-
-        time_meta: Dict[str, str] = {}
-        if 'band' in data_array.dims:
-            band_values = data_array['band'].values
-            try:
-                with xr.open_dataset(file_path) as meta_ds:
-                    if 'time' in meta_ds:
-                        time_slice, time_meta = self._determine_time_window(meta_ds['time'].values)
-                        start_idx, stop_idx = time_slice.start, time_slice.stop
-                    else:
-                        start_idx = stop_idx = None
-            except Exception:
-                start_idx = stop_idx = None
-
-            if start_idx is not None and stop_idx is not None and len(band_values) >= stop_idx:
-                band_slice = slice(band_values[start_idx], band_values[stop_idx - 1])
-                data_array = data_array.sel(band=band_slice).mean(dim='band')
-            else:
-                data_array = data_array.isel(band=0)
-        data = data_array.values
-        return data, time_meta
-
-    def _load_all_real_data(self) -> Dict[str, np.ndarray]:
-        """Load required grids via either NetCDF or the weather_tools SILO loader."""
-        # Use the 'sm_pct' product (percent) as the canonical soil moisture
-        # source. We convert percent -> fraction (0-100 -> 0-1) so the rest of
-        # the pipeline operates on volumetric fraction values consistent with
-        # `ClassifierConfig` thresholds.
-        data_sources = {
-            'soil_moisture': {
-                'pct_url': f'https://thredds.nci.org.au/thredds/dodsC/iu04/australian-water-outlook/historical/v1/AWRALv7/processed/values/day/sm_pct_{self.config.year}.nc',
-                'pct_var': 'sm_pct',
-            },
-            'temperature': {
-                'url': f'https://s3-ap-southeast-2.amazonaws.com/silo-open-data/Official/annual/max_temp/{self.config.year}.max_temp.nc',
-                'var_name': 'max_temp'
-            },
-            'vpd': {
-                'url': f'https://s3-ap-southeast-2.amazonaws.com/silo-open-data/Official/annual/vp_deficit/{self.config.year}.vp_deficit.nc',
-                'var_name': 'vp_deficit'
-            }
+        """Require every requested day exactly once, ordered, at daily resolution."""
+        if time_values.ndim != 1 or not time_values.size:
+            raise ValueError("Daily time coordinates must be a non-empty 1D array.")
+        times = pd.DatetimeIndex(pd.to_datetime(time_values))
+        if times.hasnans or not times.is_unique or not times.is_monotonic_increasing:
+            raise ValueError("Daily time coordinates must be finite, unique and increasing.")
+        if not times.equals(times.normalize()):
+            raise ValueError("Expected daily midnight time coordinates.")
+        start, end = self.config.date_range()
+        expected = pd.date_range(start, end, freq="D")
+        selected = times[(times >= pd.Timestamp(start)) & (times <= pd.Timestamp(end))]
+        missing = expected.difference(selected)
+        if not selected.equals(expected):
+            raise ValueError(
+                f"Incomplete daily window {start} to {end}: missing {len(missing)} days "
+                f"({', '.join(missing.strftime('%Y-%m-%d')[:5])})."
+            )
+        first = int(times.get_loc(expected[0]))
+        return slice(first, first + len(expected)), {
+            "time_start": start.isoformat(), "time_end": end.isoformat(),
         }
 
-        # Load the preferred percent product (sm_pct) and convert percent -> fraction
-        # (0-100 -> 0-1). We intentionally no longer fall back to the legacy `sm`
-        # product to avoid unit confusion.
-        pct_url = data_sources['soil_moisture']['pct_url']
-        pct_var = data_sources['soil_moisture']['pct_var']
+    def _load_real_netcdf(
+        self, file_path: str, var_name: str,
+    ) -> tuple[np.ndarray, Dict[str, str], np.ndarray, np.ndarray]:
+        """Read a daily cube with its own coordinates, then average a complete window."""
+        LOGGER.info("Loading %s from %s", var_name, file_path)
+        if file_path.startswith(("https://s3", "s3://")):
+            os.environ["AWS_NO_SIGN_REQUEST"] = "YES"
+        with xr.open_dataset(file_path) as ds:
+            da = ds[var_name]
+            if set(da.dims) == {"time", "lat", "lon"}:
+                da = da.rename({"lat": "latitude", "lon": "longitude"})
+            if set(da.dims) != {"time", "latitude", "longitude"}:
+                raise ValueError(f"{var_name} must have time, latitude and longitude dimensions.")
+            da = da.transpose("time", "latitude", "longitude")
+            time_slice, time_meta = self._determine_time_window(da.time.values)
+            da = da.isel(time=time_slice)
+            for name, low, high in (
+                ("latitude", self.config.min_lat, self.config.max_lat),
+                ("longitude", self.config.min_lon, self.config.max_lon),
+            ):
+                coords = np.asarray(da[name].values)
+                delta = np.diff(coords)
+                if coords.ndim != 1 or not coords.size or not np.isfinite(coords).all():
+                    raise ValueError(f"Invalid {name} coordinates for {var_name}.")
+                if not ((delta > 0).all() or (delta < 0).all()):
+                    raise ValueError(f"{name} coordinates must be strictly monotonic.")
+                if coords.size > 1 and coords[0] > coords[-1]:
+                    da = da.isel({name: slice(None, None, -1)})
+                da = da.sel({name: slice(low, high)})
+                if not da.sizes[name]:
+                    raise ValueError(f"Clipping bounds produced an empty {name} grid.")
+            values = np.array(da.values, copy=True)
+            if not np.issubdtype(values.dtype, np.floating):
+                values = values.astype(float)
+            if var_name == "sm_pct":
+                if da.attrs.get("units") != "relative":
+                    raise ValueError("sm_pct requires the verified percentile product units 'relative'.")
+                if np.isinf(values).any() or ((values < 0) | (values > 1)).any():
+                    raise ValueError("sm_pct percentile values must lie in [0, 1], with NaN for missing data.")
+            # Missing any requested day makes that cell invalid, not a shorter-window mean.
+            values[~np.isfinite(values)] = np.nan
+            averaged = np.mean(values, axis=0)
+            if var_name == "sm_pct":
+                averaged = np.asarray(averaged, dtype=float)
+            return (
+                averaged, time_meta,
+                np.asarray(da.latitude.values), np.asarray(da.longitude.values),
+            )
+
+    def _load_all_real_data(self) -> Dict[str, Any]:
+        soil_url = (
+            "https://thredds.nci.org.au/thredds/dodsC/iu04/australian-water-outlook/"
+            "historical/v1/AWRALv7/processed/deciles/day/"
+            f"sm_pct_{self.config.year}.nc"
+        )
         try:
-            soil_moisture_data, soil_meta = self._load_real_netcdf(pct_url, pct_var)
-            # Be defensive about units: some deployments provide `sm_pct` as 0-100
-            # (percent) while others already provide a 0-1 fraction. Detect which
-            # case we're in by inspecting the maximum value and only convert when
-            # it clearly looks like a percent product (> 1.1).
-            soil_moisture_data = np.asarray(soil_moisture_data, dtype=float)
-            try:
-                original_max = float(np.nanmax(soil_moisture_data))
-            except Exception:
-                original_max = float('nan')
-
-            converted = False
-            if np.isnan(original_max):
-                print("Loaded soil moisture product contains no finite values.")
-            else:
-                # Heuristic: if the max > 1.1 we assume the product is 0-100 percent
-                if original_max > 1.1:
-                    soil_moisture_data = soil_moisture_data / 100.0
-                    converted = True
-                    print(f"Detected sm_pct in percent scale (max={original_max:.3f}); converted to fraction by dividing by 100.")
-                else:
-                    print(f"Detected sm_pct already in fraction (0-1) (max={original_max:.3f}); no conversion applied.")
-            with xr.open_dataset(pct_url) as ds:
-                lats = ds['latitude'].values
-                lons = ds['longitude'].values
-            # Print a concise summary message about what we loaded and whether we converted
-            if np.isnan(original_max):
-                print(f"Loaded soil moisture product from {pct_url}; no finite values found.")
-            else:
-                if converted:
-                    print(f"Loaded soil moisture product from {pct_url} (original max={original_max:.3f}); converted to fraction.")
-                else:
-                    print(f"Loaded soil moisture product from {pct_url} (max={original_max:.3f}); no conversion applied.")
+            soil, soil_meta, lats, lons = self._load_real_netcdf(soil_url, "sm_pct")
         except Exception as exc:
             raise RuntimeError(
-                f"Failed to load preferred soil moisture percent product '{pct_url}': {exc}.\n"
-                "This pipeline requires the 'sm_pct' product (percent) for soil moisture."
-            )
+                f"Failed to load required soil moisture decile product '{soil_url}': {exc}. "
+                "The pipeline requires the AWRAL 'sm_pct' percentile-rank product on a 0-1 scale."
+            ) from exc
 
-        time_metas = [soil_meta]
-        data: Dict[str, np.ndarray] = {}
-        clipped_lats: np.ndarray
-        clipped_lons: np.ndarray
-
+        data = {"soil_moisture": soil}
+        metas = [soil_meta]
+        mapping = {"max_temp": "temperature", "vp_deficit": "vpd"}
         if self.config.use_silo_cog_loader:
-            aligned_soil, clipped_lats, clipped_lons = self._align_lat_lon(
-                {'soil_moisture': soil_moisture_data},
-                lats,
-                lons,
+            start, end = self.config.date_range()
+            result = self._get_silo_loader().load(
+                variables=self.config.silo_variables,
+                start_date=start, end_date=end,
+                bounds=(self.config.min_lat, self.config.max_lat,
+                        self.config.min_lon, self.config.max_lon),
+                target_lats=lats, target_lons=lons,
             )
-            data.update(aligned_soil)
-            try:
-                silo_result = self._load_silo_via_weather_tools(clipped_lats, clipped_lons)
-                data.update(self._map_silo_variables(silo_result.data))
-                time_metas.append(silo_result.time_metadata)
-            except Exception as exc:
-                print(f"weather_tools COG loader failed ({exc}). Falling back to SILO NetCDF files.")
-                data, clipped_lats, clipped_lons, fallback_metas = self._load_silo_via_netcdf_and_align(
-                    soil_moisture_data,
-                    lats,
-                    lons,
-                    data_sources,
+            # COG failures propagate. No automatic switch to a different data path.
+            if not np.array_equal(result.lats, lats) or not np.array_equal(result.lons, lons):
+                raise ValueError("SILO COG output coordinates do not match AWRA-L.")
+            data.update({name: result.data[var] for var, name in mapping.items()})
+            metas.append(result.time_metadata)
+        else:
+            for variable, name in mapping.items():
+                url = (
+                    "https://s3-ap-southeast-2.amazonaws.com/silo-open-data/Official/annual/"
+                    f"{variable}/{self.config.year}.{variable}.nc"
                 )
-                time_metas.extend(fallback_metas)
-        else:
-            data, clipped_lats, clipped_lons, fallback_metas = self._load_silo_via_netcdf_and_align(
-                soil_moisture_data,
-                lats,
-                lons,
-                data_sources,
-            )
-            time_metas.extend(fallback_metas)
-
-        self.time_metadata = self._combine_time_metadata(time_metas)
-
-        if data.get('temperature') is None or data.get('vpd') is None:
-            raise ValueError(
-                "SILO data did not provide both temperature and VPD grids. "
-                "Ensure 'max_temp' and 'vp_deficit' are included in silo_variables."
-            )
-
-        grid_shape = data['soil_moisture'].shape
-        ndvi = np.random.uniform(-0.1, 1.0, grid_shape)
-        ndwi = np.random.uniform(-0.5, 0.5, grid_shape)
-        fire_index = np.random.uniform(0, 10, grid_shape)
-
+                values, meta, silo_lats, silo_lons = self._load_real_netcdf(url, variable)
+                if not np.array_equal(lats, silo_lats) or not np.array_equal(lons, silo_lons):
+                    raise ValueError(f"SILO {variable} NetCDF coordinates do not match AWRA-L.")
+                data[name] = values
+                metas.append(meta)
         return {
-            'soil_moisture': data['soil_moisture'],
-            'temperature': data.get('temperature'),
-            'ndvi': ndvi,
-            'ndwi': ndwi,
-            'fire_index': fire_index,
-            'vpd': data.get('vpd'),
-            **{k: v for k, v in data.items() if k not in {'soil_moisture', 'temperature', 'vpd'}},
-            'lats': clipped_lats,
-            'lons': clipped_lons,
-            'time_metadata': self.time_metadata,
+            **data, "lats": lats, "lons": lons,
+            "time_metadata": self._combine_time_metadata(metas),
         }
 
-    def _load_silo_via_weather_tools(
-        self,
-        target_lats: np.ndarray,
-        target_lons: np.ndarray,
-    ) -> WeatherToolsResult:
-        start_date, end_date = self._resolve_silo_date_range()
-        loader = self._get_silo_loader()
-        bounds = (
-            self.config.min_lat,
-            self.config.max_lat,
-            self.config.min_lon,
-            self.config.max_lon,
-        )
-        return loader.load(
-            variables=self.config.silo_variables,
-            start_date=start_date,
-            end_date=end_date,
-            bounds=bounds,
-            target_lats=target_lats,
-            target_lons=target_lons,
-        )
-
-    def _load_silo_via_netcdf_and_align(
-        self,
-        soil_moisture: np.ndarray,
-        lats: np.ndarray,
-        lons: np.ndarray,
-        data_sources: Dict[str, Dict[str, str]],
-    ) -> tuple[Dict[str, np.ndarray], np.ndarray, np.ndarray, list[Dict[str, str]]]:
-        silo_data, silo_metas = self._load_silo_via_netcdf(data_sources)
-        merged = {'soil_moisture': soil_moisture, **silo_data}
-        aligned, clipped_lats, clipped_lons = self._align_lat_lon(merged, lats, lons)
-        return aligned, clipped_lats, clipped_lons, silo_metas
-
-    def _load_silo_via_netcdf(
-        self,
-        data_sources: Dict[str, Dict[str, str]],
-    ) -> tuple[Dict[str, np.ndarray], list[Dict[str, str]]]:
-        temperature_data, temp_meta = self._load_real_netcdf(
-            data_sources['temperature']['url'],
-            data_sources['temperature']['var_name'],
-        )
-        vpd_data, vpd_meta = self._load_real_netcdf(
-            data_sources['vpd']['url'],
-            data_sources['vpd']['var_name'],
-        )
-        metas = [m for m in (temp_meta, vpd_meta) if m]
-        return {'temperature': temperature_data, 'vpd': vpd_data}, metas
-
-    def _map_silo_variables(self, silo_data: Dict[str, np.ndarray]) -> Dict[str, np.ndarray]:
-        mapped: Dict[str, np.ndarray] = {}
-        for variable, array in silo_data.items():
-            canonical = self._canonical_silo_key(variable)
-            mapped[canonical] = array
-            if canonical != variable:
-                mapped[variable] = array
-        return mapped
-
     @staticmethod
-    def _canonical_silo_key(variable: str) -> str:
-        mapping = {
-            'max_temp': 'temperature',
-            'vp_deficit': 'vpd',
-            'vp': 'vpd',
-        }
-        return mapping.get(variable, variable)
-
-    def _resolve_silo_date_range(self) -> tuple[date, date]:
-        start = self.config.start_date or date(self.config.year, 1, 1)
-        if self.config.end_date:
-            end = self.config.end_date
-        elif self.config.start_date:
-            end = self.config.start_date
-        else:
-            end = date(self.config.year, 12, 31)
-        if end < start:
-            end = start
-        return start, end
-
-    @staticmethod
-    def _combine_time_metadata(metas: list[Dict[str, str]]) -> Optional[Dict[str, str]]:
-        valid = [m for m in metas if m]
-        if not valid:
-            return None
-        start_times = [m.get('time_start') for m in valid if m.get('time_start')]
-        end_times = [m.get('time_end') for m in valid if m.get('time_end')]
-        if start_times and end_times:
-            return {
-                'time_start': min(start_times),
-                'time_end': max(end_times),
-            }
-        return valid[0]
+    def _combine_time_metadata(metas: list[Dict[str, str]]) -> Dict[str, str]:
+        if not metas or any(set(m) != {"time_start", "time_end"} for m in metas):
+            raise ValueError("Every input must provide a complete time window.")
+        windows = [(pd.Timestamp(m["time_start"]), pd.Timestamp(m["time_end"])) for m in metas]
+        if any(pd.isna(start) or pd.isna(end) or end < start for start, end in windows):
+            raise ValueError("Invalid input time window.")
+        if any(window != windows[0] for window in windows):
+            raise ValueError("Input time windows do not match.")
+        return dict(metas[0])
 
     def prepare_data(self) -> None:
-        """Prep X/y from the configured real-world data sources."""
+        """Load grids and preserve missing-day/input and boundary exclusions."""
         data = self._load_all_real_data()
-        
-        # Flatten to samples
-        soil = data['soil_moisture']
-        temp = data['temperature']
-        ndvi = data['ndvi']
-        vpd = data['vpd']
-        valid_mask_grid = (
-            np.isfinite(soil) &
-            np.isfinite(temp) &
-            np.isfinite(ndvi) &
-            np.isfinite(vpd)
-        )
-        valid_flat = valid_mask_grid.flatten()
-        if not valid_flat.any():
-            raise ValueError("No valid grid cells available after masking NaN values.")
-        
-        X = np.column_stack([
-            soil.flatten(),
-            temp.flatten(),
-            ndvi.flatten(),  # Placeholder until real NDVI integration
-            vpd.flatten()
-        ])
+        soil, temp, vpd = (data[key] for key in ("soil_moisture", "temperature", "vpd"))
+        shape = (len(data["lats"]), len(data["lons"]))
+        if any(array.shape != shape for array in (soil, temp, vpd)):
+            raise ValueError("Input grid shapes must match the latitude/longitude coordinates.")
+        self.valid_mask_grid = np.isfinite(soil) & np.isfinite(temp) & np.isfinite(vpd)
+        if self.config.boundary_gpkg is not None:
+            self.valid_mask_grid &= self._build_polygon_mask(data["lats"], data["lons"])
+        if not self.valid_mask_grid.any():
+            raise ValueError("No valid grid cells after masking missing inputs and boundary.")
+        self.time_metadata = data["time_metadata"]
+        self.data_grids = data
+        LOGGER.info("Data prepared. Valid cells: %d of %d", int(self.valid_mask_grid.sum()), soil.size)
 
-        y_full = np.where(
-            (soil.flatten() < self.config.moisture_threshold) &
-            ((temp.flatten() > self.config.temp_threshold) | (vpd.flatten() > self.config.vpd_threshold)),
-            0, 1
-        ).astype(np.float32)
-
-        X = X[valid_flat]
-        y = y_full[valid_flat]
-
-        split = int(0.8 * len(X))
-        self.X_train, self.X_test = X[:split], X[split:]
-        self.y_train, self.y_test = y[:split], y[split:]
-        self.data_grids = data  # Store for grid prediction
-        self.valid_mask_grid = valid_mask_grid
-        self.valid_mask_flat = valid_flat
-        
-        counts = np.bincount(y.astype(int), minlength=2)
-        print(f"Data prepared. Labels: {counts} (dry, wet)")
-    
-    def build_model(self) -> None:
-        """Initialize CatBoost model."""
-        self.model = CatBoostClassifier(
-            iterations=self.config.catboost_iterations or self.config.epochs,
-            depth=self.config.catboost_depth,
-            learning_rate=self.config.catboost_learning_rate or self.config.lr,
-            loss_function="Logloss",
-            eval_metric="Logloss",
-            verbose=False,
-        )
-    
-    def train(self) -> None:
-        """Train the CatBoost classifier."""
-        if not self.model:
-            self.build_model()
-        
-        train_pool = Pool(self.X_train, label=self.y_train)
-        eval_pool = Pool(self.X_test, label=self.y_test)
-        self.model.fit(train_pool, eval_set=eval_pool, verbose=False)
-    
-    def evaluate(self) -> Dict[str, float]:
-        """Evaluate on test set."""
-        if not self.model:
-            raise ValueError("Train first!")
-        
-        test_probs = self.model.predict_proba(self.X_test)[:, 1]
-        epsilon = 1e-9
-        test_loss = -np.mean(
-            self.y_test * np.log(test_probs + epsilon) +
-            (1 - self.y_test) * np.log(1 - test_probs + epsilon)
-        )
-        accuracy = np.mean((test_probs > 0.5) == self.y_test)
-        
-        print(f"Test Loss: {test_loss:.4f}, Accuracy: {accuracy:.4f}")
-        return {'loss': float(test_loss), 'accuracy': float(accuracy)}
-    
-    def predict_grid(self) -> np.ndarray:
-        """Classify full grid."""
-        if not self.model:
-            raise ValueError("Train first!")
-        if self.valid_mask_grid is None or self.valid_mask_flat is None:
-            raise ValueError("Prepare data before predicting the grid.")
-        
-        features = np.column_stack([
-            self.data_grids['soil_moisture'].flatten(),
-            self.data_grids['temperature'].flatten(),
-            self.data_grids['ndvi'].flatten(),  # Placeholder until real NDVI integration
-            self.data_grids['vpd'].flatten()
-        ])
-        
-        valid_flat = self.valid_mask_flat
-        pred_probs_flat = np.full(features.shape[0], np.nan, dtype=np.float32)
-        pred_probs_flat[valid_flat] = self.model.predict_proba(features[valid_flat])[:, 1]
-        
-        grid_shape = self.data_grids['soil_moisture'].shape
-        pred_class = np.full(grid_shape, -1, dtype=np.int8)
-        valid_classes = (pred_probs_flat[valid_flat] > 0.5).astype(np.int8)
-        pred_class_flat = pred_class.flatten()
-        pred_class_flat[valid_flat] = valid_classes
-        pred_class = pred_class_flat.reshape(grid_shape)
-        
-        dry_count = int(np.sum(pred_class == 0))
-        wet_count = int(np.sum(pred_class == 1))
-        invalid_count = int(np.sum(pred_class < 0))
-        print(f"Grid classified. Dry: {dry_count}, Wet: {wet_count}, No data: {invalid_count}")
-        return pred_class  # -1 denotes invalid/ocean cells
-
-    def assess_risk(self, classification_grid: Optional[np.ndarray] = None) -> Dict[str, Any]:
-        """
-        Generate the risk layer and summary statistics.
-
-        Args:
-            classification_grid: Optional cached prediction. If None, predict_grid() is invoked.
-
-        Returns:
-            Dict containing the risk_map and summary counts/percentages.
-        """
-        if not hasattr(self, "data_grids"):
-            raise ValueError("Prepare data before assessing risk.")
-        if classification_grid is None:
-            classification_grid = self.predict_grid()
-
-        risk_map, summary, stress_index = assess_risk_levels(self.data_grids, classification_grid, self.config)
+    def assess_risk(self) -> Dict[str, Any]:
+        """Classify the prepared grids using the unchanged composite stress index."""
+        if not hasattr(self, 'data_grids') or self.valid_mask_grid is None:
+            raise ValueError("Call prepare_data() before assess_risk().")
+        risk_map, summary, stress_index = assess_risk_levels(self.data_grids, self.valid_mask_grid, self.config)
         return {"risk_map": risk_map, "summary": summary, "stress_index": stress_index}

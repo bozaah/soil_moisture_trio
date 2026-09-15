@@ -1,8 +1,9 @@
 from __future__ import annotations
 
+import hashlib
 import logging
 from dataclasses import dataclass
-from datetime import date
+from datetime import date, timedelta
 from pathlib import Path
 from typing import Dict, Optional, Sequence, Tuple
 
@@ -10,9 +11,11 @@ import numpy as np
 import numpy.ma as ma
 import xarray as xr
 from shapely.geometry import Polygon, box
-from weather_tools.silo_geotiff import download_geotiff
+from weather_tools.silo_geotiff import download_geotiff, read_cog
 
-logger = logging.getLogger(__name__)
+from src.soil_moisture_trio.config import SILO_VARIABLES
+
+LOGGER = logging.getLogger(__name__)
 
 
 @dataclass
@@ -50,28 +53,42 @@ class WeatherToolsSiloLoader:
         target_lats: np.ndarray,
         target_lons: np.ndarray,
     ) -> WeatherToolsResult:
-        if not variables:
-            raise ValueError("At least one SILO variable must be provided.")
+        if not variables or len(set(variables)) != len(variables) or not set(variables) <= set(SILO_VARIABLES):
+            raise ValueError("Only max_temp and vp_deficit are supported, without duplicates.")
+        if target_lats.size == 0 or target_lons.size == 0:
+            raise ValueError("target_lats and target_lons must be non-empty.")
+        if end_date < start_date:
+            raise ValueError("end_date must be on or after start_date.")
 
         min_lat, max_lat, min_lon, max_lon = bounds
+        if min_lat >= max_lat:
+            raise ValueError("min_lat must be less than max_lat.")
+        if min_lon >= max_lon:
+            raise ValueError("min_lon must be less than max_lon.")
         geometry = self._build_geometry(min_lat, max_lat, min_lon, max_lon)
+        cache_path = self._cache_dir_for_bounds(bounds)
+        if cache_path is not None:
+            LOGGER.info("Using SILO cache path %s for bounds %s", cache_path, bounds)
 
         payload = download_geotiff(
             variables=list(variables),
             start_date=start_date,
             end_date=end_date,
             geometry=geometry,
-            output_dir=self.cache_dir if self.cache_dir else None,
-            save_to_disk=self.cache_dir is not None,
-            read_files=True,
+            output_dir=cache_path,
+            save_to_disk=cache_path is not None,
+            read_files=False,
             overview_level=self.overview_level,
         )
         if not payload:
             raise ValueError("weather_tools returned no data for the requested SILO variables.")
+        if set(payload) != set(variables):
+            raise ValueError("weather_tools payload must contain exactly the requested SILO variables.")
 
+        dates = [start_date + timedelta(days=index) for index in range((end_date - start_date).days + 1)]
         arrays: Dict[str, np.ndarray] = {}
-        for variable, (stack, profile) in payload.items():
-            reduced = self._reduce_stack(stack)
+        for variable, paths in payload.items():
+            reduced, profile = self._read_daily_files(paths, variable, dates)
             lat_values, lon_values = self._coords_from_profile(profile)
             regridded = self._regrid_to_target(reduced, lat_values, lon_values, target_lats, target_lons)
             arrays[variable] = regridded.astype(np.float32)
@@ -81,6 +98,25 @@ class WeatherToolsSiloLoader:
 
         meta = {'time_start': start_date.isoformat(), 'time_end': end_date.isoformat()}
         return WeatherToolsResult(data=arrays, lats=target_lats, lons=target_lons, time_metadata=meta)
+
+    def _cache_dir_for_bounds(self, bounds: Tuple[float, float, float, float]) -> Optional[Path]:
+        if self.cache_dir is None:
+            return None
+        cache_key = self._bounds_cache_key(bounds, self.buffer_degrees, self.overview_level)
+        cache_path = self.cache_dir / cache_key
+        cache_path.mkdir(parents=True, exist_ok=True)
+        return cache_path
+
+    @staticmethod
+    def _bounds_cache_key(
+        bounds: Tuple[float, float, float, float],
+        buffer_degrees: float = 0.0,
+        overview_level: Optional[int] = None,
+    ) -> str:
+        # Cached files are already clipped/resampled. Include every geometry setting.
+        serialized = repr((tuple(float(value) for value in bounds), float(buffer_degrees), overview_level))
+        digest = hashlib.sha1(serialized.encode("utf-8")).hexdigest()[:10]
+        return f"bbox_{digest}"
 
     def _enforce_cache_limit(self) -> None:
         files = [p for p in self.cache_dir.rglob("*") if p.is_file()] if self.cache_dir else []
@@ -108,15 +144,36 @@ class WeatherToolsSiloLoader:
         return geom
 
     @staticmethod
-    def _reduce_stack(stack: np.ndarray) -> np.ndarray:
-        if ma.isMaskedArray(stack):
-            data = stack.filled(np.nan).astype(np.float32)
-        else:
-            data = np.asarray(stack, dtype=np.float32)
-        if data.ndim == 3:
-            with np.errstate(invalid='ignore'):
-                data = np.nanmean(data, axis=0)
-        return data
+    def _read_daily_files(paths: Sequence[Path], variable: str, dates: list[date]) -> tuple[np.ndarray, dict]:
+        """Do not use weather_tools' stack reader: it silently skips failed files."""
+        expected = [f"{day:%Y%m%d}.{variable}.tif" for day in dates]
+        actual = [Path(path).name for path in paths]
+        if actual != expected:
+            missing = sorted(set(expected) - set(actual))
+            raise ValueError(
+                f"{variable}: daily file list must match the requested dates exactly. "
+                f"Missing {len(missing)} days ({', '.join(missing[:5])}); "
+                "duplicates, unexpected files and reordered dates are not accepted."
+            )
+        arrays = []
+        profile = None
+        for path in paths:
+            try:
+                values, current = read_cog(str(Path(path).absolute()))
+            except Exception as exc:
+                raise ValueError(f"Cannot read required SILO day {Path(path).name}: {exc}") from exc
+            if profile is not None and any(
+                current[key] != profile[key] for key in ("crs", "transform", "height", "width")
+            ):
+                raise ValueError(f"SILO daily grid changed at {Path(path).name}.")
+            profile = current
+            data = ma.asarray(values, dtype=np.float32).filled(np.nan)
+            if data.shape != (profile["height"], profile["width"]):
+                raise ValueError(f"SILO daily grid shape mismatch at {Path(path).name}.")
+            data[~np.isfinite(data)] = np.nan
+            arrays.append(data)
+        # A cell missing any day stays invalid, even when other days are finite.
+        return np.mean(np.stack(arrays), axis=0), profile
 
     @staticmethod
     def _coords_from_profile(profile: dict) -> Tuple[np.ndarray, np.ndarray]:
@@ -140,6 +197,10 @@ class WeatherToolsSiloLoader:
         data, source_lats, source_lons = WeatherToolsSiloLoader._orient_to_ascending(
             data, source_lats, source_lons
         )
+        if data.shape != (len(source_lats), len(source_lons)):
+            raise ValueError(
+                f"SILO grid shape {data.shape} does not match source coordinates {(len(source_lats), len(source_lons))}."
+            )
         da = xr.DataArray(data, coords={'lat': source_lats, 'lon': source_lons}, dims=('lat', 'lon'))
         reindexed = da.interp(lat=target_lats, lon=target_lons, method='nearest')
         return reindexed.values
