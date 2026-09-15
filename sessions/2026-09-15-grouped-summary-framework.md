@@ -24,6 +24,14 @@ Rodrigo approved three design points before code: persist `stress_index` in the 
 
 Full suite: 183 passed, 1 authenticated SLGA test skipped. Ruff clean, `git diff --check` clean.
 
+## Renderer and first live run
+
+`scripts/render_grouped_summary.py` (`uv run python -m scripts.render_grouped_summary --grouped-json ... --output ... --title ...`): one self-contained HTML page per call, a section per grouped JSON with header counts, a reconciliation line, an inline-SVG stacked bar per group, and a category/threshold/stress table. Denominators are printed from the JSON. Two tests: with and without stress, and an unreconciled payload is flagged. Suite 185 passed.
+
+Live run, Rodrigo's request: SWAZ boundary, 2026-07-25 to 2026-09-13 (50 days, end = today minus two for SILO lag; AWRA-L was available to 09-14). `main.py` with the persisted stress index. Result: 9,650 valid cells, low 45.1%, watch 37.3%, alert 17.6%, critical 0. Outputs in `outputs/risk_2026_jul25-sep13_SWAZ_boundary/` (gitignored): run NetCDF with `stress_index`, summary JSON, PNGs, two grouped JSONs and `grouped_summary.html`.
+
+Groupings applied through `load_soil_context()`: (a) coverage ≥ 0.5 or not, a framework exercise, 0 uncovered; (b) AWC terciles cut on the risk-valid domain (86 and 103 mm), coverage < 0.5 as uncovered (58 cells). Tercile result: alert share 20.4%, 22.1%, 10.3% from low to high AWC, stress median 0.427, 0.460, 0.347. The high-AWC tercile is the least stressed in this window. In the March run the ordering was reversed (alert 4%, 16%, 26%). The bands are illustrative, not B25a's, and the sign flip between windows is exactly what the review needs to interpret before any SSA2026 figure. Possible geographic confounding (AWC clusters spatially within the zone) is not checked.
+
 ## Limits
 
 The real-data test uses a coverage split as the grouping only to exercise the framework. It is not a soil band and makes no scientific claim. B25c (bands, reference domain, minimum coverage) still waits on Karen Holmes and Dennis van Gool. No figure claiming soil stratification exists. Operational runs still do not load soil context.

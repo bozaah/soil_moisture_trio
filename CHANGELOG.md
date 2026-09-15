@@ -10,7 +10,9 @@ All notable changes per sprint/iteration. Format: `## [sprint] YYYY-MM-DD — Ti
 
 `save_risk_outputs()` now writes `stress_index` as a float32 variable when given; `risk_level` and the summary JSON are unchanged and tested byte-identical. Older saved runs lack the variable and the summariser accepts `stress_index=None`.
 
-Verification: 183 passed, 1 authenticated test skipped, Ruff clean, including a real-data reconciliation test on the March 2026 boundary run. Details: [session record](sessions/2026-09-15-grouped-summary-framework.md).
+`scripts/render_grouped_summary.py` renders grouped JSONs to a self-contained HTML page (inline SVG stacked bars, tables, denominators from the JSON). First live run with the persisted stress index: SWAZ 2026-07-25 to 2026-09-13, grouped by an illustrative AWC tercile split, outputs under `outputs/risk_2026_jul25-sep13_SWAZ_boundary/` (gitignored).
+
+Verification: 185 passed, 1 authenticated test skipped, Ruff clean, including a real-data reconciliation test on the March 2026 boundary run. Details: [session record](sessions/2026-09-15-grouped-summary-framework.md).
 
 ## [Phase 5] 2026-09-14 — SWAZ review artifact built, coverage checked, soil context loader
 

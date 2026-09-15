@@ -70,6 +70,16 @@ The runnable SWAZ example and bulletin command live in the [README quick start](
 | `--output PATH` | required | Output Markdown path |
 | `--region TEXT` | `"Western Australia"` | Region label used in the bulletin title and text |
 
+## Grouped Summary Renderer (`scripts/render_grouped_summary.py`)
+
+Run with `uv run python -m scripts.render_grouped_summary`. Renders one or more `<run>_grouped_<name>.json` files (from `soil_moisture_trio.grouped_summary.save_grouped_summary`) to one self-contained HTML page: header counts, reconciliation line, stacked bar and category/threshold/stress table per grouping, denominators as written in the JSON. No external assets.
+
+| Flag | Default | Description |
+|---|---|---|
+| `--grouped-json PATH [PATH ...]` | required | One or more grouped-summary JSON files |
+| `--output PATH` | required | Output HTML path |
+| `--title TEXT` | `Grouped drought-risk summary` | Page title |
+
 ## Phase 5 SLGA Development Utilities
 
 The operational `main.py` CLI has no SLGA flags. It does not retrieve, rebuild, or load soil layers. The bounded authenticated pilot at `scripts/slga_tiled_pilot.py` is development-only, requires an exact locally supplied canonical AWRA-L grid input plus `TERN_API_KEY`, enforces a target-cell safety limit, and writes diagnostic JSON rather than an approved artifact. Its diagnostics separate logical reads, STAC and COG attempts/outcomes, completed COG window fetches, cache hits/misses/evictions/current/peak bytes, per-tile elapsed time, and process peak RSS. Rasterio/GDAL HTTP transferred-byte counts are explicitly reported as unavailable rather than estimated.
