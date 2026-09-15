@@ -70,15 +70,30 @@ The runnable SWAZ example and bulletin command live in the [README quick start](
 | `--output PATH` | required | Output Markdown path |
 | `--region TEXT` | `"Western Australia"` | Region label used in the bulletin title and text |
 
+## Soil-Context Grouping (`scripts/grouped_soil_context.py`)
+
+Run with `uv run python -m scripts.grouped_soil_context`. Groups a finished SWAZ risk run by soil context from the review bundle and writes, beside the run, a `<run>_grouped_<name>.json` and a `<run>_grouped_<name>.nc` grouping raster per grouping. Two groupings: a soil-data coverage split, and AWC terciles cut on the risk-valid domain (illustrative, not B25a bands). The descriptive text for each grouping is authored in this script and travels with the JSON. Review input only under the 2026-08-31 waiver.
+
+| Flag | Default | Description |
+|---|---|---|
+| `--run-netcdf PATH` | required | Risk run NetCDF written by `main.py` (with `stress_index` for stress statistics) |
+| `--bundle DIR` | `data/processed/slga_awral/slga_awc_des_awral_swaz_0p05deg_v1` | SWAZ review bundle directory |
+| `--coverage-threshold FLOAT` | 0.5 | Working minimum soil-data coverage fraction |
+
 ## Grouped Summary Renderer (`scripts/render_grouped_summary.py`)
 
-Run with `uv run python -m scripts.render_grouped_summary`. Renders one or more `<run>_grouped_<name>.json` files (from `soil_moisture_trio.grouped_summary.save_grouped_summary`) to one self-contained HTML page: header counts, reconciliation line, stacked bar and category/threshold/stress table per grouping, denominators as written in the JSON. No external assets.
+Run with `uv run python -m scripts.render_grouped_summary`. Renders one or more grouped-summary JSON files to one self-contained HTML page: a fixed method paragraph, the run's own figures when given, and per grouping the authored title, description and notes, a group map drawn from the sibling `.nc` raster, a stacked bar, a category/threshold/stress table, and the denominators as written in the JSON. Base64 PNG, inline SVG and CSS, no external assets. The renderer adds no interpretation of its own.
 
 | Flag | Default | Description |
 |---|---|---|
 | `--grouped-json PATH [PATH ...]` | required | One or more grouped-summary JSON files |
 | `--output PATH` | required | Output HTML path |
 | `--title TEXT` | `Grouped drought-risk summary` | Page title |
+| `--intro TEXT` | — | One paragraph under the title |
+| `--scope-note TEXT` | — | Highlighted scope or approval statement |
+| `--risk-png PATH` | — | Run's risk map PNG to embed |
+| `--diagnostics-png PATH` | — | Run's stress diagnostics PNG to embed |
+| `--boundary-gpkg PATH` | — | Boundary outline on group maps |
 
 ## Phase 5 SLGA Development Utilities
 

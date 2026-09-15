@@ -21,6 +21,7 @@ from pathlib import Path
 from typing import Dict, List, Optional, Union
 
 import numpy as np
+import xarray as xr
 
 from src.soil_moisture_trio.config import ClassifierConfig
 from src.soil_moisture_trio.risk import RISK_LABELS, RiskLevel
@@ -45,6 +46,9 @@ class GroupRow:
 @dataclass(frozen=True)
 class GroupedSummary:
     grouping_name: str
+    title: str
+    description: str
+    notes: List[str]
     total_cells: int
     risk_valid_cells: int
     summary_cells: int
@@ -152,6 +156,9 @@ def summarise_by_group(
     config: ClassifierConfig,
     grouping_name: str = "group",
     group_labels: Optional[Dict[int, str]] = None,
+    title: Optional[str] = None,
+    description: str = "",
+    notes: Optional[List[str]] = None,
 ) -> GroupedSummary:
     """Summarise an existing risk run by an integer grouping raster.
 
@@ -166,6 +173,11 @@ def summarise_by_group(
         group_valid_mask: where the grouping is usable (for soil: the approved
             coverage rule). Supplied by the caller, never derived here.
         config: supplies the risk-band thresholds for the threshold shares.
+        grouping_name: file key, used in output filenames.
+        group_labels: human labels per group id.
+        title, description, notes: authored by the caller who defined the
+            grouping. Carried verbatim into the JSON and any rendering. This
+            module never writes interpretation of its own.
 
     Inputs are read only. The result reconciles group counts plus uncovered
     cells to ``risk_valid_mask`` and records whether that held.
@@ -207,6 +219,9 @@ def summarise_by_group(
 
     return GroupedSummary(
         grouping_name=grouping_name,
+        title=title or grouping_name,
+        description=description,
+        notes=list(notes or []),
         total_cells=int(risk_map.size),
         risk_valid_cells=risk_valid_cells,
         summary_cells=summary_cells,
@@ -238,12 +253,47 @@ def grouped_summary_path(base_path: Union[str, Path], grouping_name: str) -> Pat
     return base.with_name(f"{stem}_grouped_{safe}.json")
 
 
-def save_grouped_summary(summary: GroupedSummary, base_path: Union[str, Path]) -> Path:
-    path = grouped_summary_path(base_path, summary.grouping_name)
-    path.parent.mkdir(parents=True, exist_ok=True)
-    with path.open("w", encoding="utf-8") as fp:
+def save_grouped_summary(
+    summary: GroupedSummary,
+    base_path: Union[str, Path],
+    grouping: Optional[Dict[str, np.ndarray]] = None,
+) -> Dict[str, Path]:
+    """Write ``<run>_grouped_<name>.json`` and, when ``grouping`` is given, the
+    grouping raster as ``<run>_grouped_<name>.nc`` so the grouping is
+    reproducible and can be mapped.
+
+    ``grouping`` keys: ``lats``, ``lons``, ``group_ids``, ``group_valid_mask``,
+    ``risk_valid_mask``. The last lets a map restrict itself to the run's valid cells.
+    """
+    json_path = grouped_summary_path(base_path, summary.grouping_name)
+    json_path.parent.mkdir(parents=True, exist_ok=True)
+    with json_path.open("w", encoding="utf-8") as fp:
         json.dump(summary.to_dict(), fp, indent=2)
-    return path
+    paths = {"json": json_path}
+    if grouping is not None:
+        nc_path = json_path.with_suffix(".nc")
+        gids = np.asarray(grouping["group_ids"])
+        gvalid = np.asarray(grouping["group_valid_mask"], dtype=bool)
+        rvalid = np.asarray(grouping["risk_valid_mask"], dtype=bool)
+        if gids.shape != gvalid.shape or gids.shape != rvalid.shape:
+            raise ValueError("group_ids, group_valid_mask and risk_valid_mask shapes differ")
+        labels = {str(g.group_id): g.label for g in summary.groups}
+        ds = xr.Dataset(
+            {
+                "group_id": (("lat", "lon"), gids.astype(np.int16)),
+                "group_valid_mask": (("lat", "lon"), gvalid.astype(np.int8)),
+                "risk_valid_mask": (("lat", "lon"), rvalid.astype(np.int8)),
+            },
+            coords={"lat": np.asarray(grouping["lats"]), "lon": np.asarray(grouping["lons"])},
+            attrs={
+                "grouping_name": summary.grouping_name,
+                "title": summary.title,
+                "group_labels_json": json.dumps(labels),
+            },
+        )
+        ds.to_netcdf(nc_path)
+        paths["netcdf"] = nc_path
+    return paths
 
 
 __all__ = [

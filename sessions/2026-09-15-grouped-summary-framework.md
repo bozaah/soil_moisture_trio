@@ -32,6 +32,16 @@ Live run, Rodrigo's request: SWAZ boundary, 2026-07-25 to 2026-09-13 (50 days, e
 
 Groupings applied through `load_soil_context()`: (a) coverage ≥ 0.5 or not, a framework exercise, 0 uncovered; (b) AWC terciles cut on the risk-valid domain (86 and 103 mm), coverage < 0.5 as uncovered (58 cells). Tercile result: alert share 20.4%, 22.1%, 10.3% from low to high AWC, stress median 0.427, 0.460, 0.347. The high-AWC tercile is the least stressed in this window. In the March run the ordering was reversed (alert 4%, 16%, 26%). The bands are illustrative, not B25a's, and the sign flip between windows is exactly what the review needs to interpret before any SSA2026 figure. Possible geographic confounding (AWC clusters spatially within the zone) is not checked.
 
+## Authored text, grouping rasters, driver and page
+
+Rodrigo asked for the run's figures and group maps in the page and readable titles with short explanations. Two design rules, agreed: interpretation is authored by whoever defines a grouping and travels with the JSON (`title`, `description`, `notes` on `GroupedSummary`); the renderer prints it and adds only fixed method text. And a map needs the grouping, so `save_grouped_summary()` now also writes `<run>_grouped_<name>.nc` with `group_id`, `group_valid_mask` and `risk_valid_mask`, which also satisfies the backlog's "persist the grouping definition".
+
+`scripts/grouped_soil_context.py` replaces the scratch driver: run NetCDF plus bundle in, `coverage_split` and `awc_terciles` groupings out with their text. Reconciliation failure raises. Tested on the real 50-day run (skips if absent). `scripts/render_grouped_summary.py` embeds the run PNGs, draws one group map per grouping (valid cells only, uncovered grey, invalid white, boundary outline), and takes `--intro` and `--scope-note`. A first map drew every finite-AWC cell including those outside the boundary, which is why the raster carries `risk_valid_mask`.
+
+Group colours: ordered groups sample the same `RdYlBu` family as the run's continuous stress panel, lowest band warm, highest blue, with a matching swatch beside each bar label. The four risk-category colours are not reused for groups, so a group map cannot be misread as a risk map. Rodrigo's call after the first version used an unordered qualitative palette.
+
+The regenerated page shows higher-AWC cells along the west and south coasts and lower-AWC cells across the northern and eastern wheatbelt. With tercile bands, AWC and the rainfall gradient are not separable, which the authored notes state. Suite 187 passed, Ruff clean.
+
 ## Limits
 
 The real-data test uses a coverage split as the grouping only to exercise the framework. It is not a soil band and makes no scientific claim. B25c (bands, reference domain, minimum coverage) still waits on Karen Holmes and Dennis van Gool. No figure claiming soil stratification exists. Operational runs still do not load soil context.

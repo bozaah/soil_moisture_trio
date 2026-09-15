@@ -144,7 +144,7 @@ def test_save_grouped_summary_is_a_separate_file(tmp_path):
     risk_map, stress, valid, gids, gvalid = _fixture()
     out = summarise_by_group(risk_map, stress, valid, gids, gvalid, CONFIG, grouping_name="coverage ge 0.5")
     base = tmp_path / "run" / "risk_2026_test"
-    path = save_grouped_summary(out, base)
+    path = save_grouped_summary(out, base)["json"]
     assert path == tmp_path / "run" / "risk_2026_test_grouped_coverage_ge_0_5.json"
     assert grouped_summary_path(base.with_suffix(".nc"), "x") == tmp_path / "run" / "risk_2026_test_grouped_x.json"
     payload = json.loads(path.read_text())
@@ -152,6 +152,28 @@ def test_save_grouped_summary_is_a_separate_file(tmp_path):
     assert payload["denominators"]["category_proportions"] == "cell_count of the row"
     assert payload["uncovered"]["label"] == UNCOVERED_KEY
     assert not (tmp_path / "run" / "risk_2026_test_summary.json").exists()
+    assert payload["title"] == "coverage ge 0.5" and payload["notes"] == []
+
+
+def test_save_grouped_summary_persists_grouping_raster(tmp_path):
+    risk_map, stress, valid, gids, gvalid = _fixture()
+    out = summarise_by_group(
+        risk_map, stress, valid, gids, gvalid, CONFIG, grouping_name="rows",
+        group_labels={1: "top", 2: "middle", 3: "bottom"},
+        title="Rows", description="One group per row.", notes=["Synthetic."],
+    )
+    lats = np.array([0.0, 1.0, 2.0])
+    lons = np.array([10.0, 11.0, 12.0, 13.0])
+    paths = save_grouped_summary(out, tmp_path / "risk", {"lats": lats, "lons": lons, "group_ids": gids, "group_valid_mask": gvalid, "risk_valid_mask": valid})
+    assert paths["netcdf"] == tmp_path / "risk_grouped_rows.nc"
+    ds = xr.load_dataset(paths["netcdf"])
+    np.testing.assert_array_equal(ds["group_id"].values, gids)
+    np.testing.assert_array_equal(ds["group_valid_mask"].values.astype(bool), gvalid)
+    assert json.loads(ds.attrs["group_labels_json"]) == {"1": "top", "2": "middle", "3": "bottom"}
+    payload = json.loads(paths["json"].read_text())
+    assert payload["title"] == "Rows" and payload["description"] == "One group per row." and payload["notes"] == ["Synthetic."]
+    with pytest.raises(ValueError, match="shapes"):
+        save_grouped_summary(out, tmp_path / "bad", {"lats": lats, "lons": lons, "group_ids": gids, "group_valid_mask": gvalid[:2], "risk_valid_mask": valid})
 
 
 def test_persisting_stress_index_leaves_risk_level_identical(tmp_path):
