@@ -1,24 +1,24 @@
 # Backlog
 
-Last reviewed: 2026-09-11
+Last reviewed: 2026-09-15
 
 This file owns current status and open work. Requirements live in the linked contracts. Completed work and measurements live in [CHANGELOG](../CHANGELOG.md) and `sessions/`, not here.
 
 ## Current state
 
-The operational classifier and the separate SLGA builder are implemented. No SWAZ soil artifact or grouped-summary result exists locally. The accepted SSA2026 abstract promises soil stratification, so talk scope remains a decision for Rodrigo.
+The operational classifier and the separate SLGA builder are implemented. The SWAZ review artifact was built 2026-09-14 under the 08-31 waiver (local, gitignored, not backed up) and covers 100% of the March risk-valid cells. `load_soil_context()` returns it in a run's coordinate order and `summarise_by_group()` can aggregate a run by any grouping raster, but nothing operational calls either. No soil-stratified result exists. The accepted SSA2026 abstract promises soil stratification, so talk scope remains a decision for Rodrigo. Details: [session record](../sessions/2026-09-14-swaz-artifact-build-and-context-loader.md).
 
 The 09-11 tightening pass enforces complete daily inputs, explicit percentile units/bounds and matching NetCDF coordinates. COG failures no longer trigger automatic fallback. Builder orchestration tests cover interrupted work, resume, verified publication and cleanup. The risk formula and artifact schema are unchanged. Verification details belong to the [session record](../sessions/2026-09-11-input-builder-tightening.md).
 
 ## Now: Phase 5 soil-property stratification
 
-The dependency order is review-input build → Karen + Dennis review → product/bands/coverage decisions → grouped summaries and validation.
+The dependency order is review-input build (done) → Karen + Dennis review → product/bands/coverage decisions → grouped summaries and validation. B14a's grouping-agnostic framework and its reconciliation tests landed 2026-09-15 without the review.
 
 | Item | Remaining work | Contract |
 |---|---|---|
 | **B25a: product and scientific choices** | Review WA fitness, terminology, DES capping and mixed-quantile uncertainty with Karen Holmes and Dennis van Gool. Confirm or replace SLGA AWC/DES. Specify exact bands, fixed reference domain and minimum coverage. Karen's support for the rationale does not supply these values | [Evidence review](slga-evidence-review.md), especially §§5, 17–18 |
-| **B25b: SWAZ review artifact** | Recheck pinned local grid, credentials and clean worktree, then Rodrigo runs the builder. Inspect whole-SWAZ coverage, runtime and memory before drawing conclusions from small Albany pilots | [Builder contract](slga-builder-contract.md), [command](cli-reference.md#phase-5-slga-development-utilities) |
-| **B14a: grouped-summary layer** | Aggregate existing risk/stress by grouping raster or polygon without reclassification. Keep `soil_summary_mask = risk_valid_mask & acceptable_soil_coverage`. Report group counts, risk/soil coverage, uncovered risk cells, category proportions and stress statistics with explicit denominators. Allow later administrative/NRM/catchment groupings without implementing them now | [Architecture](architecture.md#phase-5-static-soil-path--prototype-only) |
+| **B25b: SWAZ review artifact** | Built 2026-09-14 (`63b0e8d9…4b266`, builder commit `42096ae`, 1 h 37 min, peak RSS 1.07 GB). Remaining: back up the bundle outside Git, send it with the evidence review to Karen and Dennis | [Builder contract](slga-builder-contract.md), [command](cli-reference.md#phase-5-slga-development-utilities) |
+| **B14a: grouped-summary layer** | Framework built 2026-09-15 (`grouped_summary.py`): any integer grouping raster plus a validity mask, `uncovered` row, named denominators, reconciliation flag, separate JSON output. Remaining: polygon-to-raster grouping input, and wiring a soil grouping once B25a settles bands and coverage | [Architecture](architecture.md#phase-5-static-soil-path--prototype-only) |
 | **B25c: first stratified product** | Use the reviewed artifact and approved bands/reference domain to summarise AWC+DES soil-capacity context. Persist the grouping definition. Do not attempt a comprehensive soil taxonomy | [Evidence review](slga-evidence-review.md) |
 | **B25d: scientific/output checks** | Demonstrate unchanged per-cell risk, stress, risk validity and risk summary. Reconcile strata plus insufficient-soil-coverage cells with all valid-risk cells. Test nodata, partial coverage, non-overlap, grid/CRS mismatch, invalid metadata, authentication failure, changed versions and grouping edge cases. Include provenance, coverage and scientific limits with outputs | [Builder contract](slga-builder-contract.md), [evidence review](slga-evidence-review.md) |
 

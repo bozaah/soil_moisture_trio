@@ -166,6 +166,7 @@ def save_risk_outputs(
     base_path: Union[str, Path] = "risk_layer",
     time_metadata: Optional[Dict[str, str]] = None,
     model_metadata: Optional[Dict[str, float]] = None,
+    stress_index: Optional[np.ndarray] = None,
 ) -> Dict[str, Path]:
     """
     Persist the risk map to NetCDF and the summary to JSON.
@@ -177,6 +178,9 @@ def save_risk_outputs(
         base_path: Output file prefix
         time_metadata: Optional metadata (start/end ISO datetimes)
         model_metadata: Optional stress-model weights and thresholds
+        stress_index: Optional continuous stress array from assess_risk_levels. When
+            given it is written as a second variable so grouped summaries can be
+            computed from the saved file. ``risk_level`` is unaffected.
 
     Returns:
         dict with keys 'netcdf' and 'summary' pointing to written files
@@ -192,10 +196,13 @@ def save_risk_outputs(
     nc_path.parent.mkdir(parents=True, exist_ok=True)
     summary_path.parent.mkdir(parents=True, exist_ok=True)
 
-    ds = xr.Dataset(
-        {"risk_level": (("lat", "lon"), risk_map.astype(np.int8))},
-        coords={"lat": lats, "lon": lons},
-    )
+    data_vars = {"risk_level": (("lat", "lon"), risk_map.astype(np.int8))}
+    if stress_index is not None:
+        stress_arr = np.asarray(stress_index, dtype=np.float32)
+        if stress_arr.shape != risk_map.shape:
+            raise ValueError(f"stress_index shape {stress_arr.shape} does not match risk_map shape {risk_map.shape}")
+        data_vars["stress_index"] = (("lat", "lon"), stress_arr)
+    ds = xr.Dataset(data_vars, coords={"lat": lats, "lon": lons})
     ds.attrs["risk_summary_json"] = json.dumps(summary)
     if time_metadata:
         ds.attrs.update(time_metadata)

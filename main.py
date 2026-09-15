@@ -42,6 +42,7 @@ def run_pipeline(
             summary=report["summary"], base_path=risk_output_prefix,
             time_metadata=pipeline.time_metadata,
             model_metadata=pipeline.config.risk_model_parameters(),
+            stress_index=report["stress_index"],
         )
         LOGGER.info("Risk layer saved to %s and summary to %s", files["netcdf"], files["summary"])
 

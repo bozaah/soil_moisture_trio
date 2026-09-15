@@ -4,6 +4,22 @@ All notable changes per sprint/iteration. Format: `## [sprint] YYYY-MM-DD — Ti
 
 ---
 
+## [Phase 5] 2026-09-15 — Grouping-agnostic summary framework, persisted stress index
+
+`summarise_by_group()` aggregates a finished risk run by any integer grouping raster on the same grid, with a separate `uncovered` row and every proportion's denominator named. Reports category counts and proportions, share at or above each risk threshold, and descriptive stress statistics per group. Grouping and its validity mask are inputs, so no coverage rule or soil band is assumed. Results go to a separate `<run>_grouped_<name>.json`.
+
+`save_risk_outputs()` now writes `stress_index` as a float32 variable when given; `risk_level` and the summary JSON are unchanged and tested byte-identical. Older saved runs lack the variable and the summariser accepts `stress_index=None`.
+
+Verification: 183 passed, 1 authenticated test skipped, Ruff clean, including a real-data reconciliation test on the March 2026 boundary run. Details: [session record](sessions/2026-09-15-grouped-summary-framework.md).
+
+## [Phase 5] 2026-09-14 — SWAZ review artifact built, coverage checked, soil context loader
+
+Rodrigo ran the review-only SWAZ build under the 08-31 waiver on clean `42096ae`: 16 stripes, 1 h 37 min, 18 sources, 5,472 window fetches, zero failures. Bundle `data/processed/slga_awral/slga_awc_des_awral_swaz_0p05deg_v1/`, artifact SHA-256 `63b0e8d9…4b266`, 29,016 cells, 79.6% carrying soil values. Gitignored, local only, backup outside Git still owed. Zero cache hits is expected for a single pass, not a defect.
+
+Coverage check against the March 2026 SWAZ risk runs: 100% of risk-valid cells carry AWC and DES values (one coastal cell excepted). The uncovered 20.4% of the rectangle is outside the risk domain. Coverage fraction ≥0.5 spans 99.5% of risk cells, so the minimum-coverage rule touches the coastal fringe only.
+
+Added `load_soil_context()`: returns the verified artifact subset in a run's coordinate order, either orientation, failing on any coordinate mismatch. Tested on a synthetic bundle and on the real bundle against the March boundary grid. No pipeline change, operational runs still do not load soil context. Verification: 172 passed, 1 authenticated test skipped, Ruff clean. Details: [session record](sessions/2026-09-14-swaz-artifact-build-and-context-loader.md).
+
 ## [Hardening] 2026-09-11 — Daily inputs, builder orchestration and smaller entry docs
 
 Require complete matching daily windows, retrieval-year consistency, explicit percentile units/bounds and exact NetCDF grid agreement. Remove percent-scale guessing, the `vp` alias, automatic COG fallback and the unused first-raster-band path. Read each required SILO file without suppressing failures. Missing daily values now invalidate cells instead of shortening their averaging window. Cache identity includes buffer and overview.
