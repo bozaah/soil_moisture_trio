@@ -37,6 +37,9 @@ main.py
 | `src/soil_moisture_trio/plot.py` | Risk PNG and diagnostics PNG generation |
 | `src/soil_moisture_trio/slga/` | Phase 5 static-soil catalogue, COG access, integration, harmonisation, tiling, and reviewed v1-candidate artifact I/O; not called by the operational risk pipeline |
 | `scripts/render_bulletin.py` | Markdown bulletin rendering from summary JSON |
+| `src/soil_moisture_trio/grouped_summary.py` | Grouping-agnostic summaries of a finished run: any integer grouping raster plus validity mask, `uncovered` row, named denominators, reconciliation flag, caller-authored text, JSON and grouping-raster persistence. Pure numpy, no SLGA import |
+| `scripts/grouped_soil_context.py` | Review-only driver: groups a run by soil-data coverage and illustrative AWC terciles from the SWAZ review bundle via `load_soil_context()`; authors the descriptive text that travels with each grouping |
+| `scripts/render_grouped_summary.py` | Self-contained HTML page from grouped JSONs: method text, embedded run figures, a group map per grouping restricted to the run's valid cells, stacked bars, tables. Adds no interpretation |
 | `src/soil_moisture_trio/slga/checkpoint.py` | Credential-free immutable stripe checkpoints and exact stripe assembly for resumable SWAZ builds |
 | `scripts/slga_tiled_pilot.py` | Development-only bounded authenticated SLGA pilot with retry/cache/tile/RSS diagnostics; does not write or approve a production artifact |
 | `scripts/slga_build_swaz_artifact.py` | Explicit clean-commit-only SWAZ builder: 10-row resumable stripes, 10×10 tiles, 256 MiB cache, reviewed immutable bundle publication |
@@ -57,11 +60,13 @@ explicit pinned AWRA-L v7 grid file
   -> exact full-SWAZ stripe assembly
   -> immutable staged v1-candidate NetCDF + sidecar + build-report bundle
 
-future operational soil context:
-approved immutable artifact
-  -> credential-free checksum/schema-verifying loader
-  -> exact contiguous AWRA-L coordinate subset
-  -> separate soil-summary mask and grouped summaries
+review-only soil context (exists, not called by main.py):
+immutable review artifact
+  -> credential-free checksum/schema-verifying loader (`load_soil_artifact`)
+  -> exact run-oriented coordinate subset (`load_soil_context`)
+  -> caller-defined grouping raster + validity mask
+  -> `summarise_by_group` with soil_summary_mask = risk_valid_mask & group_valid_mask
+  -> <run>_grouped_<name>.json + .nc, rendered to HTML
 ```
 
 Normal drought runs never retrieve, rebuild or load SLGA data. The builder targets the SWAZ rectangle, not full WA. Artifact requirements and measured pilot limits belong to the [builder contract](slga-builder-contract.md). Current completion/approval status belongs to the [backlog](backlog.md).
@@ -133,11 +138,13 @@ Config validation requires weights to sum to 1, ordered risk thresholds, an orde
 
 | Artifact | Format | Notes |
 |---|---|---|
-| `{prefix}.nc` | NetCDF | `risk_level` with lat/lon coords; summary, model parameters, and time metadata in attributes |
+| `{prefix}.nc` | NetCDF | `risk_level` and, since 2026-09-15, `stress_index` (float32, NaN where invalid) with lat/lon coords; summary, model parameters, and time metadata in attributes. Runs saved earlier lack `stress_index` |
 | `{prefix}_summary.json` | JSON | Per-category statistics, time metadata, and the run's model parameters |
 | `risk PNG` | PNG | Two-panel categorical map + continuous stress index |
 | `stress_diagnostics.png` | PNG | Soil-moisture histogram and soil-moisture vs VPD scatter |
 | bulletin `.md` | Markdown | Rendered separately via `scripts/render_bulletin.py` |
+| `{prefix}_grouped_{name}.json` / `.nc` | JSON, NetCDF | Grouped summary and its grouping raster (`group_id`, `group_valid_mask`, `risk_valid_mask`). Written by `save_grouped_summary`, separate from the run outputs above, which it never modifies |
+| `grouped_summary.html` | HTML | Self-contained page from `scripts/render_grouped_summary.py`; figures embedded as base64 |
 
 ## Operational Notes
 

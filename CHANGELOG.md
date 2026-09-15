@@ -12,7 +12,7 @@ All notable changes per sprint/iteration. Format: `## [sprint] YYYY-MM-DD — Ti
 
 Grouped summaries carry caller-authored `title`, `description` and `notes`, and `save_grouped_summary()` also persists the grouping raster with the run's valid mask as `<run>_grouped_<name>.nc`. `scripts/grouped_soil_context.py` groups a run by soil-data coverage and by illustrative AWC terciles from the review bundle, text authored there. `scripts/render_grouped_summary.py` renders grouped JSONs to a self-contained HTML page: method paragraph, embedded run figures, a group map per grouping restricted to the run's valid cells, stacked bars, tables, denominators from the JSON, no interpretation of its own. First live run with the persisted stress index: SWAZ 2026-07-25 to 2026-09-13, outputs under `outputs/risk_2026_jul25-sep13_SWAZ_boundary/` (gitignored).
 
-Verification: 187 passed, 1 authenticated test skipped, Ruff clean, including a real-data reconciliation test on the March 2026 boundary run. Details: [session record](sessions/2026-09-15-grouped-summary-framework.md).
+Docs pass the same day: README quick start moved to the 50-day window with the grouping and render steps, architecture module and output tables, data README bundle status, backlog B25d row. Verification: 187 passed, 1 authenticated test skipped, Ruff clean, including a real-data reconciliation test on the March 2026 boundary run. Details: [session record](sessions/2026-09-15-grouped-summary-framework.md).
 
 ## [Phase 5] 2026-09-14 — SWAZ review artifact built, coverage checked, soil context loader
 
