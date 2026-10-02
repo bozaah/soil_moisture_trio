@@ -1,0 +1,181 @@
+{
+  "manifest_schema_version": 1,
+  "manifest_id": "slga_awc_des_sources_v1",
+  "verified_at": "2026-08-12",
+  "purpose": "Pinned source contract for the Phase 5 static SLGA-to-AWRA-L builder",
+  "credential_environment_variable": "TERN_API_KEY",
+  "authentication": "HTTP Basic authentication with username 'apikey' and TERN_API_KEY as the password; never embed credentials in persisted URLs or logs",
+  "source_base_url": "https://data.tern.org.au/model-derived/slga/NationalMaps/SoilAndLandscapeGrid",
+  "stac_sidecar_rule": "replace the terminal .tif in each pinned URL with .json",
+  "verification_probe_bounds_epsg4326": [116.0, -32.0, 116.005, -31.995],
+  "common_profile": {
+    "driver": "GTiff",
+    "crs": "EPSG:4326",
+    "shape": [40800, 49200],
+    "transform": [
+      0.0008333333333536583,
+      0.0,
+      112.999583333,
+      0.0,
+      -0.0008333333333578432,
+      -10.000416666
+    ],
+    "bounds": [112.999583333, -44.000416667, 153.999583334, -10.000416666],
+    "band_count": 1,
+    "native_resolution": "3 arc-second (~90 m)",
+    "area_or_point": "Area",
+    "format": "Cloud Optimised GeoTIFF",
+    "licence": "CC BY 4.0"
+  },
+  "products": {
+    "AWC": {
+      "title": "Available Volumetric Water Capacity (Percent) Version 2",
+      "version": 2,
+      "current_status_at_verification": true,
+      "doi": "10.25919/4jwj-na34",
+      "citation": "Searle, R., Nimalka Somarathna, P. D. S. & Malone, B. (2024): Soil and Landscape Grid National Soil Attribute Maps - Available Volumetric Water Capacity (Percent) (3 arc second resolution) Version 2. Version 2.0. Terrestrial Ecosystem Research Network. (Dataset). https://doi.org/10.25919/4jwj-na34",
+      "units": "Percent",
+      "dtype": "uint16",
+      "nodata": 65535,
+      "components": {
+        "EV": "estimated value",
+        "05": "5th-percentile lower confidence limit",
+        "95": "95th-percentile upper confidence limit"
+      },
+      "included_depths_cm": [[0, 5], [5, 15], [15, 30], [30, 60], [60, 100]],
+      "excluded_depths_cm": [[100, 200]]
+    },
+    "DES": {
+      "title": "Depth of Soil (A and B horizons) Version 2",
+      "version": 2,
+      "current_status_at_verification": true,
+      "doi": "10.25919/djdn-5x77",
+      "citation": "Malone, B. & Searle, R. (2022): Soil and Landscape Grid National Soil Attribute Maps - Soil Depth (3\" resolution) - Release 2. Version 2.0. Terrestrial Ecosystem Research Network. (Dataset). https://doi.org/10.25919/djdn-5x77",
+      "units": "metres",
+      "dtype": "float32",
+      "nodata": "NaN",
+      "components": {
+        "EV": "estimated value",
+        "10": "10th-percentile lower confidence limit",
+        "90": "90th-percentile upper confidence limit"
+      },
+      "included_depths_cm": [[0, 200]]
+    }
+  },
+  "metadata_caveats": [
+    "AWC STAC raster-band metadata omits nodata, while every verified AWC COG defines nodata=65535.",
+    "DES COG band descriptions contain stale NAT identifiers; the live filenames and STAC item IDs use the pinned TRN identifiers.",
+    "DES uncertainty components are 10th/90th percentiles, not 5th/95th; the non-existent DES 05/95 URLs returned HTTP 404 during verification.",
+    "Published file:checksum values are retained exactly as STAC multihashes; do not infer a different checksum encoding from their text representation."
+  ],
+  "layers": [
+    {
+      "product_id": "AWC_000_005_EV_N_P_AU_TRN_N_20210614",
+      "property": "AWC", "depth_code": "000_005", "component": "EV",
+      "url": "https://data.tern.org.au/model-derived/slga/NationalMaps/SoilAndLandscapeGrid/AWC/v2/AWC_000_005_EV_N_P_AU_TRN_N_20210614.tif",
+      "stac_multihash": "d501106ec09fab9dd76179520e87337ea60215", "file_size_bytes": 321059513
+    },
+    {
+      "product_id": "AWC_005_015_EV_N_P_AU_TRN_N_20210614",
+      "property": "AWC", "depth_code": "005_015", "component": "EV",
+      "url": "https://data.tern.org.au/model-derived/slga/NationalMaps/SoilAndLandscapeGrid/AWC/v2/AWC_005_015_EV_N_P_AU_TRN_N_20210614.tif",
+      "stac_multihash": "d50110a3e2396b209ca7a57917113b0d3cb877", "file_size_bytes": 306197198
+    },
+    {
+      "product_id": "AWC_015_030_EV_N_P_AU_TRN_N_20210614",
+      "property": "AWC", "depth_code": "015_030", "component": "EV",
+      "url": "https://data.tern.org.au/model-derived/slga/NationalMaps/SoilAndLandscapeGrid/AWC/v2/AWC_015_030_EV_N_P_AU_TRN_N_20210614.tif",
+      "stac_multihash": "d501105a8cc62240591d845f62f37af3ed28e7", "file_size_bytes": 312965966
+    },
+    {
+      "product_id": "AWC_030_060_EV_N_P_AU_TRN_N_20210614",
+      "property": "AWC", "depth_code": "030_060", "component": "EV",
+      "url": "https://data.tern.org.au/model-derived/slga/NationalMaps/SoilAndLandscapeGrid/AWC/v2/AWC_030_060_EV_N_P_AU_TRN_N_20210614.tif",
+      "stac_multihash": "d501104aa84d630c19abc8282903bc1f5b8fb8", "file_size_bytes": 317592254
+    },
+    {
+      "product_id": "AWC_060_100_EV_N_P_AU_TRN_N_20210614",
+      "property": "AWC", "depth_code": "060_100", "component": "EV",
+      "url": "https://data.tern.org.au/model-derived/slga/NationalMaps/SoilAndLandscapeGrid/AWC/v2/AWC_060_100_EV_N_P_AU_TRN_N_20210614.tif",
+      "stac_multihash": "d501102609b5365b727c0e848e269c6f06d0cb", "file_size_bytes": 322247283
+    },
+    {
+      "product_id": "AWC_000_005_05_N_P_AU_TRN_N_20210614",
+      "property": "AWC", "depth_code": "000_005", "component": "05",
+      "url": "https://data.tern.org.au/model-derived/slga/NationalMaps/SoilAndLandscapeGrid/AWC/v2/AWC_000_005_05_N_P_AU_TRN_N_20210614.tif",
+      "stac_multihash": "d50110dfdb809bd337eee0c5df40776d762bd2", "file_size_bytes": 527506601
+    },
+    {
+      "product_id": "AWC_005_015_05_N_P_AU_TRN_N_20210614",
+      "property": "AWC", "depth_code": "005_015", "component": "05",
+      "url": "https://data.tern.org.au/model-derived/slga/NationalMaps/SoilAndLandscapeGrid/AWC/v2/AWC_005_015_05_N_P_AU_TRN_N_20210614.tif",
+      "stac_multihash": "d501108de33b45cecfb7c3903ccee7500ce7ab", "file_size_bytes": 526462995
+    },
+    {
+      "product_id": "AWC_015_030_05_N_P_AU_TRN_N_20210614",
+      "property": "AWC", "depth_code": "015_030", "component": "05",
+      "url": "https://data.tern.org.au/model-derived/slga/NationalMaps/SoilAndLandscapeGrid/AWC/v2/AWC_015_030_05_N_P_AU_TRN_N_20210614.tif",
+      "stac_multihash": "d50110df1d48bf6c235a48f871b2334190abdc", "file_size_bytes": 518128933
+    },
+    {
+      "product_id": "AWC_030_060_05_N_P_AU_TRN_N_20210614",
+      "property": "AWC", "depth_code": "030_060", "component": "05",
+      "url": "https://data.tern.org.au/model-derived/slga/NationalMaps/SoilAndLandscapeGrid/AWC/v2/AWC_030_060_05_N_P_AU_TRN_N_20210614.tif",
+      "stac_multihash": "d501101ff50d55ac08af3491d6489233f4be55", "file_size_bytes": 510470820
+    },
+    {
+      "product_id": "AWC_060_100_05_N_P_AU_TRN_N_20210614",
+      "property": "AWC", "depth_code": "060_100", "component": "05",
+      "url": "https://data.tern.org.au/model-derived/slga/NationalMaps/SoilAndLandscapeGrid/AWC/v2/AWC_060_100_05_N_P_AU_TRN_N_20210614.tif",
+      "stac_multihash": "d50110c3477e095d2f28154b87434dc29f5f42", "file_size_bytes": 499783245
+    },
+    {
+      "product_id": "AWC_000_005_95_N_P_AU_TRN_N_20210614",
+      "property": "AWC", "depth_code": "000_005", "component": "95",
+      "url": "https://data.tern.org.au/model-derived/slga/NationalMaps/SoilAndLandscapeGrid/AWC/v2/AWC_000_005_95_N_P_AU_TRN_N_20210614.tif",
+      "stac_multihash": "d5011038177be053ba4e192cfc686be28e0d2d", "file_size_bytes": 542936960
+    },
+    {
+      "product_id": "AWC_005_015_95_N_P_AU_TRN_N_20210614",
+      "property": "AWC", "depth_code": "005_015", "component": "95",
+      "url": "https://data.tern.org.au/model-derived/slga/NationalMaps/SoilAndLandscapeGrid/AWC/v2/AWC_005_015_95_N_P_AU_TRN_N_20210614.tif",
+      "stac_multihash": "d50110c40b6e603d5960352e9cd2959271311f", "file_size_bytes": 540284189
+    },
+    {
+      "product_id": "AWC_015_030_95_N_P_AU_TRN_N_20210614",
+      "property": "AWC", "depth_code": "015_030", "component": "95",
+      "url": "https://data.tern.org.au/model-derived/slga/NationalMaps/SoilAndLandscapeGrid/AWC/v2/AWC_015_030_95_N_P_AU_TRN_N_20210614.tif",
+      "stac_multihash": "d50110ff0310669f3e52110a8051fd14fce7ff", "file_size_bytes": 546927981
+    },
+    {
+      "product_id": "AWC_030_060_95_N_P_AU_TRN_N_20210614",
+      "property": "AWC", "depth_code": "030_060", "component": "95",
+      "url": "https://data.tern.org.au/model-derived/slga/NationalMaps/SoilAndLandscapeGrid/AWC/v2/AWC_030_060_95_N_P_AU_TRN_N_20210614.tif",
+      "stac_multihash": "d5011011d60bc9b02fb25b00f9d600bf30d703", "file_size_bytes": 538237428
+    },
+    {
+      "product_id": "AWC_060_100_95_N_P_AU_TRN_N_20210614",
+      "property": "AWC", "depth_code": "060_100", "component": "95",
+      "url": "https://data.tern.org.au/model-derived/slga/NationalMaps/SoilAndLandscapeGrid/AWC/v2/AWC_060_100_95_N_P_AU_TRN_N_20210614.tif",
+      "stac_multihash": "d5011024557aa21d70edabc7add15cfd818f91", "file_size_bytes": 552396212
+    },
+    {
+      "product_id": "DES_000_200_EV_N_P_AU_TRN_C_20190901",
+      "property": "DES", "depth_code": "000_200", "component": "EV",
+      "url": "https://data.tern.org.au/model-derived/slga/NationalMaps/SoilAndLandscapeGrid/DES/v2/DES_000_200_EV_N_P_AU_TRN_C_20190901.tif",
+      "stac_multihash": "d50110a6bce1f1dc847cc7459625ab12833192", "file_size_bytes": 1153243378
+    },
+    {
+      "product_id": "DES_000_200_10_N_P_AU_TRN_C_20190901",
+      "property": "DES", "depth_code": "000_200", "component": "10",
+      "url": "https://data.tern.org.au/model-derived/slga/NationalMaps/SoilAndLandscapeGrid/DES/v2/DES_000_200_10_N_P_AU_TRN_C_20190901.tif",
+      "stac_multihash": "d501103f497065962a4e87c95762cba3de527f", "file_size_bytes": 1090940640
+    },
+    {
+      "product_id": "DES_000_200_90_N_P_AU_TRN_C_20190901",
+      "property": "DES", "depth_code": "000_200", "component": "90",
+      "url": "https://data.tern.org.au/model-derived/slga/NationalMaps/SoilAndLandscapeGrid/DES/v2/DES_000_200_90_N_P_AU_TRN_C_20190901.tif",
+      "stac_multihash": "d5011026a4ed163ea3c3cd5f4cb0430344da61", "file_size_bytes": 1217470146
+    }
+  ]
+}

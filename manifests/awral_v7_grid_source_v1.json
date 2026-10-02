@@ -1,0 +1,112 @@
+{
+  "coordinate_contract": {
+    "approved_swaz_artifact_footprint": {
+      "artifact_scope": "South West Agricultural Zone buffered operational rectangle; the approved boundary polygon is applied later as a runtime mask and does not alter static full-cell denominators",
+      "boundary_bbox_epsg4326": {
+        "east": 123.24668541,
+        "north": -27.52350348,
+        "south": -35.13552459,
+        "west": 114.10831281
+      },
+      "boundary_buffer_degrees": 0.1,
+      "boundary_crs": "EPSG:28350",
+      "boundary_feature_count": 5,
+      "boundary_reference": "data/south_west_agricultural_boundary.gpkg",
+      "boundary_sha256": "407ce1b536e1391e73677d04e995de8c913d49859c328b3f8904deb92b198b66",
+      "cell_count": 29016,
+      "decision_date": "2026-08-14",
+      "latitude_first": -27.45,
+      "latitude_last": -35.2,
+      "latitude_length": 156,
+      "longitude_first": 114.05,
+      "longitude_last": 123.3,
+      "longitude_length": 186,
+      "operational_buffered_bbox_epsg4326": {
+        "east": 123.346685,
+        "north": -27.423503,
+        "south": -35.235525,
+        "west": 114.008313
+      },
+      "selection_rule": "inclusive exact contiguous source-coordinate centres within the boundary-derived 0.1 degree buffered bbox, in original orientation; no tolerance, rounding, or coordinate regeneration"
+    },
+    "coordinate_semantics": "AWRA-L model grid cell centres; no coordinate bounds are supplied by the source, so artifact cell edges are derived from adjacent-centre midpoints",
+    "latitude": {
+      "attributes": {
+        "long_name": "latitude",
+        "name": "latitude",
+        "standard_name": "latitude",
+        "units": "degrees_north"
+      },
+      "dimension": "latitude",
+      "dtype": "float64",
+      "first": -10.0,
+      "last": -44.0,
+      "length": 681,
+      "orientation": "descending",
+      "raw_float64_little_endian_sha256": "c947890b1a9680c7df9da13a45b2e2bb75a0911e870133437bf6ba1898993b4f"
+    },
+    "longitude": {
+      "attributes": {
+        "long_name": "longitude",
+        "name": "longitude",
+        "standard_name": "longitude",
+        "units": "degrees_east"
+      },
+      "dimension": "longitude",
+      "dtype": "float64",
+      "first": 112.0,
+      "last": 154.0,
+      "length": 841,
+      "orientation": "ascending",
+      "raw_float64_little_endian_sha256": "a441f84b5c2a2203279cf07f0e5fd1fd81071eb7903f109b40f3cc7860849e2e"
+    },
+    "nominal_spacing_degrees": 0.05,
+    "spacing_absolute_tolerance_degrees": 1e-10
+  },
+  "grid_contract_id": "awral_v7_grid_source_v1",
+  "grid_contract_schema_version": 1,
+  "purpose": "Pinned authoritative coordinate source for the static Phase 5 SLGA-to-AWRA-L artifact builder",
+  "source": {
+    "collection_path": "iu04/australian-water-outlook/historical/v1/AWRALv7/processed/deciles/day",
+    "data_variable": {
+      "dimensions": [
+        "time",
+        "latitude",
+        "longitude"
+      ],
+      "dtype": "float32",
+      "name": "sm_pct"
+    },
+    "dimensions": {
+      "latitude": 681,
+      "longitude": 841,
+      "time": 365
+    },
+    "download_url": "https://thredds.nci.org.au/thredds/fileServer/iu04/australian-water-outlook/historical/v1/AWRALv7/processed/deciles/day/sm_pct_2025.nc",
+    "filename": "sm_pct_2025.nc",
+    "global_attributes": {
+      "Conventions": "CF-1.6, ACDD-1.3",
+      "institution": "Bureau of Meteorology",
+      "source": "AWRA-L",
+      "summary": "Data produced by Bureau of Meteorology Australian Water Resources Assessment Landscape Model (AWRA-L)",
+      "title": "Australian Landscape Water Balance AWRA-L Model",
+      "var_name": "sm_pct"
+    },
+    "host": "National Computational Infrastructure THREDDS",
+    "http_last_modified": "2026-07-02T13:09:10Z",
+    "licence_status": "No licence field was present in the inspected source NetCDF or THREDDS metadata; verify redistribution terms before distributing any source bytes.",
+    "model_version": "AWRA-L v7",
+    "opendap_url": "https://thredds.nci.org.au/thredds/dodsC/iu04/australian-water-outlook/historical/v1/AWRALv7/processed/deciles/day/sm_pct_2025.nc",
+    "processing_product": "historical v1 daily root-zone soil-moisture deciles",
+    "provider": "Bureau of Meteorology",
+    "retrieved_and_hashed_at_utc": "2026-08-12T07:34:00Z",
+    "sha256": "353af96c7826111a54e189120ed6e1dcb6f9d2a1a0d6966c286aae4f4429095b",
+    "size_bytes": 312193677,
+    "source_year": 2025
+  },
+  "source_selection": {
+    "decision": "Use the completed 2025 Bureau-produced AWRA-L v7 operational decile file hosted by NCI and require an exact local byte copy verified by size and SHA-256.",
+    "immutability_rule": "The remote annual object may be replaced upstream. Its URL alone is not immutable; only bytes matching the pinned size and independently computed SHA-256 satisfy this contract.",
+    "rejected_as_canonical": "Zenodo record 10689080 corroborates the 681 by 841 coordinate grid but is a third-party republication and does not identify AWRA-L v7 in its record metadata."
+  }
+}
