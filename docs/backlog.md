@@ -28,6 +28,7 @@ The build uses the reviewed v1 candidate schema, 10×10 tiles, a 256 MiB cache a
 
 ## Next
 
+- **B26: historical window sanity check.** Window A (March to May 2019, 2021, 2026) done 2026-10-02: 2019 separates from 2021 in the north, 2026 does not in that window. Remaining: window B (25 May to 31 July) for the same years, and checking the year labels against BoM or DPIRD records. Sanity check only, not skill. [Session record](../sessions/2026-10-02-historical-window-sanity-check.md).
 - **B23: seasonal stress calibration.** Assess bias from systematically higher summer VPD/temperature using historical SILO and the WA percentile baseline. Any change requires scientifically reviewed, configuration-driven thresholds. Keep classification unchanged during Phase 5.
 - **B24: rangelands/multi-region support.** A future full-WA download/cache could serve multiple approved boundaries. The SWAZ-only soil artifact does not fulfil this item. Keep the current per-boundary workflow until there is a funded need.
 

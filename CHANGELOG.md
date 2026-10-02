@@ -4,6 +4,12 @@ All notable changes per sprint/iteration. Format: `## [sprint] YYYY-MM-DD — Ti
 
 ---
 
+## [Evaluation] 2026-10-02 — Historical window sanity check, window A
+
+No code change. SWAZ runs for 1 March to 31 May in 2019 (known poor), 2021 (contrast) and 2026, same window so the fixed temperature and VPD cut-offs affect each year alike. 2019: Watch 56.4%, Alert 8.0%, with Alert at 39.8% north of 30.5°S. 2021 and 2026: over 99% Low. 2026 Mid West dryness does not appear in this window. Window B (25 May to 31 July) and checks against external records are open as B26. Details: [session record](sessions/2026-10-02-historical-window-sanity-check.md).
+
+---
+
 ## [Phase 5] 2026-09-15 — Grouping-agnostic summary framework, persisted stress index
 
 `summarise_by_group()` aggregates a finished risk run by any integer grouping raster on the same grid, with a separate `uncovered` row and every proportion's denominator named. Reports category counts and proportions, share at or above each risk threshold, and descriptive stress statistics per group. Grouping and its validity mask are inputs, so no coverage rule or soil band is assumed. Results go to a separate `<run>_grouped_<name>.json`.
